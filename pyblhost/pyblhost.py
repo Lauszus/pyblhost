@@ -718,11 +718,11 @@ def cli():
     parser.add_argument('-r', dest='cmd_repeat', help='The number of times to try to establish a connection',
                         default=3, type=int)
 
-    # Options for CAN
+    # Options for "can" command
     parser.add_argument('-tx', dest='tx_id', help='The TX ID (in hex) to use for CAN')
     parser.add_argument('-rx', dest='rx_id', help='The RX ID (in hex) to use for CAN')
 
-    # Options for UART
+    # Options for "serial" command
     parser.add_argument('-p', dest='port', help='The port to use for serial', type=str)
     parser.add_argument('-b', dest='baudrate', help='The baudrate to use for serial', type=int, default=500000)
 
