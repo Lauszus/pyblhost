@@ -22,8 +22,31 @@ jobs:
       with:
         name: pyblhost-${{ github.sha }}
         path: dist
+  checks:
+    name: Checks
+    runs-on: ubuntu-20.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+    - name: Update pip
+      run: pip install -U pip setuptools wheel
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        pip install -U flake8
+        flake8 pyblhost/*.py --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 pyblhost/*.py --count --max-line-length=300 --statistics --per-file-ignores='pyblhost/__init__.py:F401,F403'
+    - name: Static type checking
+      run: |
+        # Use mypy for static type checking
+        pip install -U mypy
+        mypy --config-file mypy.ini pyblhost/*.py
   release:
-    needs: [sdist]
+    needs: [sdist, checks]
     name: Release
     runs-on: ubuntu-20.04
     timeout-minutes: 5
