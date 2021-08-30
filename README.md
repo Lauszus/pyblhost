@@ -15,7 +15,7 @@ Current UART and CAN-Bus interfaces are supported.
 
 ## Installation
 
-```bash
+```
 pip install pyblhost
 ```
 
@@ -53,40 +53,40 @@ optional arguments:
 
 __Upload__
 
-```bash
+```
 pyblhost upload -i can -tx 0x123 -rx 0x321 -B blink.bin -s 0x4C000 -c 0x34000
 ```
 
-```bash
+```
 pyblhost upload -i serial -p /dev/ttyUSB0 -b 500000 -B blink.bin -s 0x4C000 -c 0x34000
 ```
 
 __Read__
 
-```bash
+```
 pyblhost read -i can -tx 0x123 -rx 0x321 -B memory.bin -s 0xC000 -c 0x34000
 ```
 
-```bash
+```
 pyblhost read -i serial -p /dev/ttyUSB0 -b 500000 -B memory.bin -s 0xC000 -c 0x34000
 ```
 
 __Ping__
 
-```bash
+```
 pyblhost ping -i can -tx 0x123 -rx 0x321
 ```
 
-```bash
+```
 pyblhost ping -i serial -p /dev/ttyUSB0 -b 500000
 ```
 
 __Reset__
 
-```bash
+```
 pyblhost reset -i can -tx 0x123 -rx 0x321
 ```
 
-```bash
+```
 pyblhost reset -i serial -p /dev/ttyUSB0 -b 500000
 ```
