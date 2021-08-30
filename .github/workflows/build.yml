@@ -1,0 +1,49 @@
+name: pyblhost CI
+
+on: [push, pull_request]
+
+jobs:
+  sdist:
+    name: Build sdist
+    runs-on: ubuntu-20.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+    - name: Install dependencies
+      run: pip install -U pip setuptools wheel
+    - name: Build sdist
+      run: python setup.py sdist
+    - name: Upload sdist as artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: pyblhost-${{ github.sha }}
+        path: dist
+  release:
+    needs: [sdist]
+    name: Release
+    runs-on: ubuntu-20.04
+    timeout-minutes: 5
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+    - uses: actions/download-artifact@v2
+      with:
+        name: pyblhost-${{ github.sha }}
+        path: pyblhost
+    - name: Publish PyPI
+      run: |
+        pip install -U pip setuptools wheel
+        pip install -U twine
+        twine upload -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} pyblhost/*
+    - name: Publish to Github Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: pyblhost/*
+        draft: true
