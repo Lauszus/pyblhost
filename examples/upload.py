@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Python implemented of blhost used to communicate with NXP MCUBOOT/KBOOT bootloader.
+# Python implemented of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader.
 # Copyright (C) 2020-2021  Kristian Sloth Lauszus.
 #
 # This program is free software: you can redistribute it and/or modify
