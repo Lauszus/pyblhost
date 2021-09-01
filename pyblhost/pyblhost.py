@@ -33,6 +33,8 @@ import can
 import serial
 from tqdm import tqdm
 
+from pyblhost import __version__
+
 
 class BlhostBase(object):
     """
@@ -640,7 +642,7 @@ class BlhostCanListener(can.Listener):
 
 class BlhostCan(BlhostBase):
 
-    def __init__(self, tx_id, rx_id, logger, interface='socketcan', channel='can0', baudrate=250000):
+    def __init__(self, tx_id, rx_id, logger, interface='socketcan', channel='can0', bitrate=500000):
         super(BlhostCan, self).__init__(logger)
 
         # CAN-Bus IDs used for two-way communication with the target
@@ -651,7 +653,7 @@ class BlhostCan(BlhostBase):
         can_filters = [{'can_id': self._tx_id, 'can_mask': 0x7FF, 'extended': False}]
 
         # Open a CAN-Bus interface and listener
-        self._can_bus = can.Bus(interface=interface, channel=channel, can_filters=can_filters, bitrate=baudrate)
+        self._can_bus = can.Bus(interface=interface, channel=channel, can_filters=can_filters, bitrate=bitrate)
         self.logger.info('BlhostCan: CAN-Bus was opened. Channel info: "{}"'.format(self._can_bus.channel_info))
         self._can_notifier = can.Notifier(self._can_bus, [BlhostCanListener(self._tx_id, self.logger,
                                                                             self._data_callback)])
@@ -704,27 +706,48 @@ class BlhostSerial(BlhostBase):
 
 
 def cli():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('command', help='Command to run. Either "upload", "read", "ping" or "reset"',
+    parser = argparse.ArgumentParser(add_help=False, formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('command', help='upload: write BINARY to START_ADDRESS. Before writing it will erase the '
+                                        'memory from START_ADDRESS to START_ADDRESS + BYTE_COUNT\n'
+                                        'read: read memory from START_ADDRESS to START_ADDRESS + BYTE_COUNT. '
+                                        'the read data will be stored in BINARY\n'
+                                        'ping: send a ping command to the target and check for a response\n'
+                                        'reset: send a reset command to the target and check for a response',
                         choices=['upload', 'read', 'ping', 'reset'])
-    parser.add_argument('-i', dest='interface', help='The interface to use', choices=['can', 'serial'],
-                        required=True)
-    parser.add_argument('-B', dest='binary', help='The binary to upload')
-    parser.add_argument('-s', dest='start_address', help='The address (in hex) to upload the binary at or read '
-                                                         'memory from')
-    parser.add_argument('-c', dest='byte_count', help='The number of bytes (in hex) to erase/read')
-    parser.add_argument('-t', dest='timeout', help='The time to wait in seconds for a response', default=1.0,
-                        type=float)
-    parser.add_argument('-r', dest='cmd_repeat', help='The number of times to try to establish a connection',
-                        default=3, type=int)
 
-    # Options for "can" command
-    parser.add_argument('-tx', dest='tx_id', help='The TX ID (in hex) to use for CAN')
-    parser.add_argument('-rx', dest='rx_id', help='The RX ID (in hex) to use for CAN')
+    # Required arguments
+    required = parser.add_argument_group('required arguments')
+    required.add_argument('-i', '--interface', help='The interface to use', choices=['can', 'serial'], required=True)
 
-    # Options for "serial" command
-    parser.add_argument('-p', dest='port', help='The port to use for serial', type=str)
-    parser.add_argument('-b', dest='baudrate', help='The baudrate to use for serial', type=int, default=500000)
+    # Options for "can"
+    required_can = parser.add_argument_group('required CAN arguments')
+    required_can.add_argument('-tx', '--tx-id', help='The TX ID (in hex) to use for CAN')
+    required_can.add_argument('-rx', '--rx-id', help='The RX ID (in hex) to use for CAN')
+
+    optional_can = parser.add_argument_group('optional CAN arguments')
+    optional_can.add_argument('-ci', '--can-interface', help='The CAN-Bus interface to use (default "socketcan")',
+                              default='socketcan')
+    optional_can.add_argument('-ch', '--channel', help='The CAN-Bus channel to use (default "can0")', default='can0')
+
+    # Options for "serial"
+    required_serial = parser.add_argument_group('required serial arguments')
+    required_serial.add_argument('-p', '--port', help='The port to use for serial')
+
+    # Common optional arguments
+    optional = parser.add_argument_group('optional arguments')
+    optional.add_argument('-h', '--help', action='help', help='Show this help message and exit')
+    optional.add_argument('--version', action='version', help='Show program\'s version number and exit',
+                          version='%(prog)s {}'.format(__version__))
+    optional.add_argument('-B', '--binary', help='The binary to upload or write memory into')
+    optional.add_argument('-s', '--start-address',
+                          help='The address (in hex) to upload the binary at or read memory from')
+    optional.add_argument('-c', '--byte-count', dest='byte_count', help='The number of bytes (in hex) to erase/read')
+    optional.add_argument('-t', '--timeout', help='The time to wait in seconds for a response (default 1.0)',
+                          default=1.0, type=float)
+    optional.add_argument('-r', '--cmd-repeat', help='The number of times to try to establish a connection (default 3)',
+                          default=3, type=int)
+    optional.add_argument('-b', '--baudrate', '--bitrate',
+                          help='The baudrate/bitrate to use for serial/can (default 500000)', type=int, default=500000)
 
     parsed_args = parser.parse_args()
     if parsed_args.interface == 'can':
@@ -732,13 +755,14 @@ def cli():
             parser.print_help()
             exit(1)
         BlHostImpl = BlhostCan  # type: Type[BlhostBase]
-        args = [int(parsed_args.tx_id, base=16), int(parsed_args.rx_id, base=16)]
+        args, kwargs = [int(parsed_args.tx_id, base=16), int(parsed_args.rx_id, base=16)], \
+            {'interface': parsed_args.can_interface, 'channel': parsed_args.channel, 'bitrate': parsed_args.baudrate}
     else:
         if parsed_args.port is None or parsed_args.baudrate is None:
             parser.print_help()
             exit(1)
         BlHostImpl = BlhostSerial
-        args = [parsed_args.port, parsed_args.baudrate]
+        args, kwargs = [parsed_args.port, parsed_args.baudrate], {}
 
     # Print all log output directly in the terminal
     logger = logging.getLogger()
@@ -746,8 +770,9 @@ def cli():
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
     logger.addHandler(stream_handler)
+    kwargs['logger'] = logger
 
-    with BlHostImpl(*args, logger=logger) as blhost:
+    with BlHostImpl(*args, **kwargs) as blhost:
         if parsed_args.command == 'upload':
             if parsed_args.binary is None or parsed_args.start_address is None or parsed_args.byte_count is None:
                 parser.print_help()
