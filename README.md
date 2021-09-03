@@ -7,7 +7,7 @@ _________
 [![PyPI](https://img.shields.io/pypi/v/pyblhost.svg)](https://pypi.org/project/pyblhost)
 [![pyblhost CI](https://github.com/Lauszus/pyblhost/actions/workflows/build.yml/badge.svg)](https://github.com/Lauszus/pyblhost/actions/workflows/build.yml)
 
-This is a Python implemented of [blhost](https://github.com/Lauszus/blhost) used to communicate with the [NXP MCUBOOT/KBOOT bootloader](https://www.nxp.com/design/software/development-software/mcuxpresso-software-and-tools-/mcuboot-mcu-bootloader-for-nxp-microcontrollers:MCUBOOT).
+This is a Python implementation of [blhost](https://github.com/Lauszus/blhost) used to communicate with the [NXP MCUBOOT/KBOOT bootloader](https://www.nxp.com/design/software/development-software/mcuxpresso-software-and-tools-/mcuboot-mcu-bootloader-for-nxp-microcontrollers:MCUBOOT).
 
 For now it only implements a subset of the blhost commands.
 
