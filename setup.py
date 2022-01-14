@@ -40,6 +40,9 @@ setup(
     name='pyblhost',
     version=version,
     packages=find_packages(),
+    package_data={
+        'pyblhost': ['py.typed'],
+    },
     url='https://github.com/Lauszus/pyblhost',
     license='GPLv3',
     author='Kristian Sloth Lauszus',
