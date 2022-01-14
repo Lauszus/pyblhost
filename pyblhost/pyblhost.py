@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader.
-# Copyright (C) 2020-2021  Kristian Sloth Lauszus.
+# Copyright (C) 2020-2022  Kristian Sloth Lauszus.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ import can
 import serial
 from tqdm import tqdm
 
-from pyblhost import __version__
+from . import __version__
 
 
 class BlhostBase(object):
@@ -238,7 +238,7 @@ class BlhostBase(object):
         finally:
             # Make sure the target is always reset
             if not self.reset(timeout=timeout):
-                # This is BAD. This could make the flight controller stay in bootloader mode!
+                # This is BAD. This could make the target stay in bootloader mode!
                 self.logger.error('BlhostBase: Timed out waiting for reset response')
                 upload_result = False
 
