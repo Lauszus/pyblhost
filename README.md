@@ -1,6 +1,6 @@
 # pyblhost
 
-#### Developed by Kristian Sloth Lauszus, 2020-2021
+#### Developed by Kristian Sloth Lauszus, 2020-2022
 
 The code is released under the GNU General Public License v3.0.
 _________
