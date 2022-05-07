@@ -596,7 +596,7 @@ class BlhostDataParser(object):
             return None
 
         # Check if we are done reading the packet
-        if self._data_len is not None and len(self._data) == self._data_len and self._data_crc is not None:
+        if self._data_len is not None and len(self._data) >= self._data_len and self._data_crc is not None:
             if self._data[1] == BlhostBase.FramingPacketConstants.Type_PingResponse:
                 crc = BlhostBase.crc16Xmodem(self._data[:8])
             else:
