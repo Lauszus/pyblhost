@@ -14,7 +14,7 @@ jobs:
       with:
         python-version: 3.9
     - name: Install dependencies
-      run: pip install -U pip setuptools wheel
+      run: pip install -U pip setuptools!=65.6.1,!=65.6.2 wheel
     - name: Build sdist
       run: python setup.py sdist
     - name: Upload sdist as artifact
@@ -33,7 +33,7 @@ jobs:
       with:
         python-version: 3.9
     - name: Update pip
-      run: pip install -U pip setuptools wheel
+      run: pip install -U pip setuptools!=65.6.1,!=65.6.2 wheel
     - name: Lint with flake8
       run: |
         # Stop the build if there are Python syntax errors or undefined names
@@ -62,7 +62,7 @@ jobs:
         path: pyblhost
     - name: Publish PyPI
       run: |
-        pip install -U pip setuptools wheel
+        pip install -U pip setuptools!=65.6.1,!=65.6.2 wheel
         pip install -U twine
         twine upload -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} pyblhost/*
     - name: Publish to Github Release
