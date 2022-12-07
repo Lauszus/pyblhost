@@ -622,6 +622,7 @@ class BlhostCanListener(can.Listener):
         self._logger = logger
         self._callback_func = callback_func
         self._parser = BlhostDataParser(self._logger)
+        self._stopped = False
 
     def on_message_received(self, msg: can.Message):
         # We are only interested in frames from the target
@@ -634,10 +635,12 @@ class BlhostCanListener(can.Listener):
             self._callback_func(data)
 
     def on_error(self, exc):
-        self._logger.exception('BlhostCanListener: on_error')
+        # Workaround issue with errors being printed when the interface is shutting down
+        if not self._stopped:
+            self._logger.exception('BlhostCanListener: on_error')
 
     def stop(self):
-        pass
+        self._stopped = True
 
 
 class BlhostCan(BlhostBase):
