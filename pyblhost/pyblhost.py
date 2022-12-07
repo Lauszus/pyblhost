@@ -26,6 +26,7 @@ import argparse
 import logging
 import struct
 import threading
+import time
 from enum import IntEnum
 from typing import Callable, Optional, Generator, Union, Type
 
@@ -645,12 +646,17 @@ class BlhostCanListener(can.Listener):
 
 class BlhostCan(BlhostBase):
 
-    def __init__(self, tx_id, rx_id, logger, interface='socketcan', channel='can0', bitrate=500000, can_bus=None):
+    def __init__(self, tx_id, rx_id, logger, interface='socketcan', channel='can0', bitrate=500000, can_bus=None,
+                 time_to_sleep_between_messages: Optional[int] = None):
         super(BlhostCan, self).__init__(logger)
 
         # CAN-Bus IDs used for two-way communication with the target
         self._tx_id = tx_id
         self._rx_id = rx_id
+
+        # Can be used to sleep between messages. This can be useful to ensure that messages are sent in order.
+        # Fx https://github.com/Lauszus/socketsocketcan/ currently has a problem where the order is not enforced.
+        self._time_to_sleep_between_messages = time_to_sleep_between_messages
 
         # Open a CAN-Bus interface and listener
         if can_bus is None:
@@ -676,6 +682,8 @@ class BlhostCan(BlhostBase):
         for d in BlhostBase.chunks(data, 8):
             msg = can.Message(arbitration_id=self._rx_id, data=d, is_extended_id=False)
             self._can_bus.send(msg)
+            if self._time_to_sleep_between_messages is not None:
+                time.sleep(self._time_to_sleep_between_messages)
 
     def shutdown(self, timeout=1.0):
         self._can_notifier.stop(timeout=timeout)
