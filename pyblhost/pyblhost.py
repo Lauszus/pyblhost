@@ -211,7 +211,10 @@ class BlhostBase(object):
         self._command_packet(self.CommandTags.Reset, 0x00)
         return self._reset_response_event.wait(timeout)
 
-    def upload(self, binary_filename: str, start_address: int, erase_byte_count: int, timeout=5.0, ping_repeat=3) -> Generator[Union[float, bool], None, None]:
+    def upload(self, binary_filename: str, start_address: int, erase_byte_count: int, timeout=5.0, ping_repeat=3,
+               attempts=1) -> Generator[Union[float, bool], None, None]:
+        if attempts < 1:
+            raise ValueError('BlhostBase: "attempts" has to be greater than 0')
         self.logger.info('BlhostBase: Uploading "{}" to 0x{:X}'.format(binary_filename, start_address))
 
         # Read the binary data from the file
@@ -224,24 +227,30 @@ class BlhostBase(object):
         if len(binary_data) % 16 != 0:
             binary_data += bytes([0xff] * (16 - (len(binary_data) % 16)))
 
-        try:
-            # Yield a progress while uploading and store the return value
-            upload_result = yield from self._upload(binary_data, start_address, erase_byte_count, timeout, ping_repeat)
+        upload_result = False
+        for _ in range(attempts):
+            try:
+                # Yield a progress while uploading and store the return value
+                upload_result = yield from self._upload(binary_data, start_address, erase_byte_count, timeout, ping_repeat)
 
-            # We need to clear the backup region if uploading fails.
-            if not upload_result:
-                self.logger.info('BlhostBase: Uploading failed. Erasing flash region: 0x{:X} -> 0x{:X}'.format(
-                    start_address, start_address + erase_byte_count))
-                self._flash_erase_region_response_event.clear()
-                self._flash_erase_region(start_address, erase_byte_count)
-                if not self._flash_erase_region_response_event.wait(timeout):
-                    self.logger.error('BlhostBase: Timed out waiting for flash erase region response after the upload failed')
-        finally:
-            # Make sure the target is always reset
-            if not self.reset(timeout=timeout):
-                # This is BAD. This could make the target stay in bootloader mode!
-                self.logger.error('BlhostBase: Timed out waiting for reset response')
-                upload_result = False
+                # We need to clear the backup region if uploading fails.
+                if not upload_result:
+                    self.logger.info('BlhostBase: Uploading failed. Erasing flash region: 0x{:X} -> 0x{:X}'.format(
+                        start_address, start_address + erase_byte_count))
+                    self._flash_erase_region_response_event.clear()
+                    self._flash_erase_region(start_address, erase_byte_count)
+                    if not self._flash_erase_region_response_event.wait(timeout):
+                        self.logger.error('BlhostBase: Timed out waiting for flash erase region response after the upload failed')
+            finally:
+                # Make sure the target is always reset
+                if not self.reset(timeout=timeout):
+                    # This is BAD. This could make the target stay in bootloader mode!
+                    self.logger.error('BlhostBase: Timed out waiting for reset response')
+                    upload_result = False
+
+            if upload_result:
+                # Uploading was successful
+                break
 
         # Finally yield the result
         yield upload_result
