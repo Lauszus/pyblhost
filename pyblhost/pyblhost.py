@@ -539,7 +539,7 @@ class BlhostBase(object):
             protocol_bugfix, protocol_minor, protocol_major, protocol_name, options = struct.Struct('<BBBBH').unpack(data[2:8])
             protocol_version = '{}{}.{}.{}'.format(chr(protocol_name), protocol_major, protocol_minor, protocol_bugfix)
             self.logger.info('BlhostBase: Ping response: version: {}, options: {}'.format(protocol_version, options))
-            if protocol_version != 'P1.2.0':
+            if protocol_version not in ['P1.2.0', 'P1.3.0']:
                 self.logger.error('BlhostBase: Unsupported protocol version: {}'.format(protocol_version))
         else:
             self.logger.info('BlhostBase: Unhandled command type: {}'.format(data[1]))
