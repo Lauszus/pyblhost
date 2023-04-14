@@ -235,7 +235,7 @@ class BlhostBase(object):
 
                 # We need to clear the backup region if uploading fails.
                 if not upload_result:
-                    self.logger.info('BlhostBase: Uploading failed. Erasing flash region: 0x{:X} -> 0x{:X}'.format(
+                    self.logger.error('BlhostBase: Uploading failed. Erasing flash region: 0x{:X} -> 0x{:X}'.format(
                         start_address, start_address + erase_byte_count))
                     self._flash_erase_region_response_event.clear()
                     self._flash_erase_region(start_address, erase_byte_count)
@@ -306,6 +306,7 @@ class BlhostBase(object):
             # status code."
             return True
 
+        self.logger.warning('BlhostBase: Timed out waiting for write memory response')
         return False
 
     def _ack(self):
@@ -566,6 +567,7 @@ class BlhostDataParser(object):
 
         # The packet type will always start with the start byte
         while len(self._data) > 0 and self._data[0] != BlhostBase.FramingPacketConstants.StartByte:
+            self._logger.warning('BootloaderDataParser: Discarding invalid data: {}'.format(self._data[0]))
             self._data = self._data[1:]  # Discard the fist byte
 
         if len(self._data) < 2:
