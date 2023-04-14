@@ -567,6 +567,7 @@ class BlhostDataParser(object):
 
         # The packet type will always start with the start byte
         while len(self._data) > 0 and self._data[0] != BlhostBase.FramingPacketConstants.StartByte:
+            self._logger.warning('BootloaderDataParser: Discarding invalid data: {}'.format(self._data[0]))
             self._data = self._data[1:]  # Discard the fist byte
 
         if len(self._data) < 2:
