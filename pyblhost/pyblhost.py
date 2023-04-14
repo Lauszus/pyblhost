@@ -235,7 +235,7 @@ class BlhostBase(object):
 
                 # We need to clear the backup region if uploading fails.
                 if not upload_result:
-                    self.logger.info('BlhostBase: Uploading failed. Erasing flash region: 0x{:X} -> 0x{:X}'.format(
+                    self.logger.error('BlhostBase: Uploading failed. Erasing flash region: 0x{:X} -> 0x{:X}'.format(
                         start_address, start_address + erase_byte_count))
                     self._flash_erase_region_response_event.clear()
                     self._flash_erase_region(start_address, erase_byte_count)
