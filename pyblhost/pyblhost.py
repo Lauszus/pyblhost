@@ -306,6 +306,7 @@ class BlhostBase(object):
             # status code."
             return True
 
+        self.logger.warning('BlhostBase: Timed out waiting for write memory response')
         return False
 
     def _ack(self):
