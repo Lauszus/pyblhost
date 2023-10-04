@@ -28,7 +28,7 @@ import struct
 import threading
 import time
 from enum import IntEnum
-from typing import Callable, Optional, Generator, Union, Type
+from typing import Callable, Optional, Generator, Union
 
 import can
 import serial
@@ -629,8 +629,9 @@ class BlhostDataParser(object):
 
 class BlhostCanListener(can.Listener):
 
-    def __init__(self, tx_id, logger, callback_func: Callable[[bytearray], None]):
+    def __init__(self, tx_id: int, _extended_id: bool, logger, callback_func: Callable[[bytearray], None]):
         self._tx_id = tx_id
+        self._extended_id = _extended_id
         self._logger = logger
         self._callback_func = callback_func
         self._parser = BlhostDataParser(self._logger)
@@ -638,7 +639,8 @@ class BlhostCanListener(can.Listener):
 
     def on_message_received(self, msg: can.Message):
         # We are only interested in frames from the target
-        if msg.is_error_frame or msg.is_remote_frame or msg.is_extended_id or msg.arbitration_id != self._tx_id:
+        if (msg.is_error_frame or msg.is_remote_frame or msg.is_extended_id != self._extended_id or
+                msg.arbitration_id != self._tx_id):
             return
 
         # Parse the data and return it once it is fully parsed
@@ -658,12 +660,13 @@ class BlhostCanListener(can.Listener):
 class BlhostCan(BlhostBase):
 
     def __init__(self, tx_id, rx_id, logger, interface='socketcan', channel='can0', bitrate=500000, can_bus=None,
-                 time_to_sleep_between_messages: Optional[int] = None):
+                 time_to_sleep_between_messages: Optional[int] = None, extended_id=False):
         super(BlhostCan, self).__init__(logger)
 
         # CAN-Bus IDs used for two-way communication with the target
         self._tx_id = tx_id
         self._rx_id = rx_id
+        self._extended_id = extended_id
 
         # Can be used to sleep between messages. This can be useful to ensure that messages are sent in order.
         # Fx https://github.com/Lauszus/socketsocketcan/ currently has a problem where the order is not enforced.
@@ -672,7 +675,8 @@ class BlhostCan(BlhostBase):
         # Open a CAN-Bus interface and listener
         if can_bus is None:
             # Only receive the TX ID
-            can_filters = [{'can_id': self._tx_id, 'can_mask': 0x7FF, 'extended': False}]
+            can_filters = [{'can_id': self._tx_id, 'can_mask': 0x1FFFFFFF if self._extended_id else 0x7FF,
+                            'extended': self._extended_id}]
             self._can_bus = can.Bus(interface=interface, channel=channel, can_filters=can_filters, bitrate=bitrate)
             self.logger.info('BlhostCan: CAN-Bus was opened. Channel info: "{}"'.format(self._can_bus.channel_info))
 
@@ -685,13 +689,13 @@ class BlhostCan(BlhostBase):
             # The user should handle shutting down the CAN-Bus
             self._can_bus_shutdown = False
 
-        self._can_notifier = can.Notifier(self._can_bus, [BlhostCanListener(self._tx_id, self.logger,
-                                                                            self._data_callback)])
+        self._can_notifier = can.Notifier(self._can_bus, [BlhostCanListener(self._tx_id, self._extended_id,
+                                                                            self.logger, self._data_callback)])
 
     def _send_implementation(self, data: list):
         # Send out the message in chunks of 8 bytes on the CAN-Bus
         for d in BlhostBase.chunks(data, 8):
-            msg = can.Message(arbitration_id=self._rx_id, data=d, is_extended_id=False)
+            msg = can.Message(arbitration_id=self._rx_id, data=d, is_extended_id=self._extended_id)
             self._can_bus.send(msg)
             if self._time_to_sleep_between_messages is not None:
                 time.sleep(self._time_to_sleep_between_messages)
@@ -739,7 +743,7 @@ class BlhostSerial(BlhostBase):
 
 
 def cli():
-    parser = argparse.ArgumentParser(add_help=False, formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(prog="pyblhost", add_help=False, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('hw_interface', help='Communicate with the target via either CAN or serial',
                         choices=['can', 'serial'])
     parser.add_argument('command', help='upload: write BINARY to START_ADDRESS. Before writing it will erase the '
@@ -756,6 +760,7 @@ def cli():
     required_can.add_argument('-rx', '--rx-id', help='The RX ID (in hex) to use for CAN')
 
     optional_can = parser.add_argument_group('optional CAN arguments')
+    optional_can.add_argument('-e', '--extended-id', help='CAN ID is an extended ID', type=int, default=0)
     optional_can.add_argument('-i', '--interface', help='The CAN-Bus interface to use (default "socketcan")',
                               default='socketcan')
     optional_can.add_argument('-l', '--channel', help='The CAN-Bus channel to use (default "can0")', default='can0')
@@ -785,9 +790,10 @@ def cli():
         if parsed_args.tx_id is None or parsed_args.rx_id is None:
             parser.print_help()
             exit(1)
-        BlHostImpl = BlhostCan  # type: Type[BlhostBase]
+        BlHostImpl = BlhostCan
         args, kwargs = [int(parsed_args.tx_id, base=16), int(parsed_args.rx_id, base=16)], \
-            {'interface': parsed_args.interface, 'channel': parsed_args.channel, 'bitrate': parsed_args.baudrate}
+            {'interface': parsed_args.interface, 'channel': parsed_args.channel, 'bitrate': parsed_args.baudrate,
+             "extended_id": bool(parsed_args.extended_id)}
     else:
         if parsed_args.port is None or parsed_args.baudrate is None:
             parser.print_help()
