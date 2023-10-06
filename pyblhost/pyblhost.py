@@ -756,8 +756,8 @@ def cli():
 
     # Options for "can"
     required_can = parser.add_argument_group('required CAN arguments')
-    required_can.add_argument('-tx', '--tx-id', help='The TX ID (in hex) to use for CAN')
-    required_can.add_argument('-rx', '--rx-id', help='The RX ID (in hex) to use for CAN')
+    required_can.add_argument('-tx', '--tx-id', help='The TX ID to use for CAN')
+    required_can.add_argument('-rx', '--rx-id', help='The RX ID to use for CAN')
 
     optional_can = parser.add_argument_group('optional CAN arguments')
     optional_can.add_argument('-e', '--extended-id', help='CAN ID is an extended ID', type=int, default=0)
@@ -776,8 +776,8 @@ def cli():
                           version='%(prog)s {}'.format(__version__))
     optional.add_argument('-B', '--binary', help='The binary to upload or write memory into')
     optional.add_argument('-s', '--start-address',
-                          help='The address (in hex) to upload the binary at or read memory from')
-    optional.add_argument('-c', '--byte-count', dest='byte_count', help='The number of bytes (in hex) to erase/read')
+                          help='The address to upload the binary at or read memory from')
+    optional.add_argument('-c', '--byte-count', dest='byte_count', help='The number of bytes to erase/read')
     optional.add_argument('-t', '--timeout', help='The time to wait in seconds for a response (default 1.0)',
                           default=1.0, type=float)
     optional.add_argument('-r', '--cmd-repeat', help='The number of times to try to establish a connection (default 3)',
@@ -791,7 +791,7 @@ def cli():
             parser.print_help()
             exit(1)
         BlHostImpl = BlhostCan
-        args, kwargs = [int(parsed_args.tx_id, base=16), int(parsed_args.rx_id, base=16)], \
+        args, kwargs = [int(parsed_args.tx_id, base=0), int(parsed_args.rx_id, base=0)], \
             {'interface': parsed_args.interface, 'channel': parsed_args.channel, 'bitrate': parsed_args.baudrate,
              "extended_id": bool(parsed_args.extended_id)}
     else:
@@ -816,8 +816,8 @@ def cli():
                 exit(1)
             pbar = None
             result = False
-            for progress in blhost.upload(parsed_args.binary, int(parsed_args.start_address, base=16),
-                                          int(parsed_args.byte_count, base=16), timeout=parsed_args.timeout,
+            for progress in blhost.upload(parsed_args.binary, int(parsed_args.start_address, base=0),
+                                          int(parsed_args.byte_count, base=0), timeout=parsed_args.timeout,
                                           ping_repeat=parsed_args.cmd_repeat):
                 if not isinstance(progress, bool):
                     if pbar is None:
@@ -844,8 +844,8 @@ def cli():
                 exit(1)
             pbar = None
             data = None
-            for progress in blhost.read(int(parsed_args.start_address, base=16),
-                                        int(parsed_args.byte_count, base=16), timeout=parsed_args.timeout,
+            for progress in blhost.read(int(parsed_args.start_address, base=0),
+                                        int(parsed_args.byte_count, base=0), timeout=parsed_args.timeout,
                                         ping_repeat=parsed_args.cmd_repeat):
                 if not isinstance(progress, bytearray):
                     if pbar is None:
