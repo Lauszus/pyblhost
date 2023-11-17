@@ -27,7 +27,10 @@ import re
 from setuptools import find_packages, setup
 
 with open("pyblhost/__init__.py", "r") as f:
-    version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', f.read(), re.MULTILINE).group(1)
+    match = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', f.read(), re.MULTILINE)
+    if match is None:
+        raise Exception('Missing version in "pyblhost/__init__.py"')
+    version = match.group(1)
 
 with open("README.md", "r") as f:
     long_description = f.read()

@@ -27,7 +27,7 @@ import logging
 from pyblhost import BlhostSerial
 
 
-def main():
+def main() -> None:
     # BlhostSerial specific arguments
     port, baudrate = "/dev/ttyUSB0", 500000
 

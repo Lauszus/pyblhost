@@ -27,7 +27,7 @@ import logging
 from pyblhost import BlhostCan
 
 
-def main():
+def main() -> None:
     # BlhostCan specific arguments
     tx_id, rx_id = 0x123, 0x321
 

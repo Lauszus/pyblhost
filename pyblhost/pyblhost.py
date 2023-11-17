@@ -28,7 +28,8 @@ import struct
 import threading
 import time
 from enum import IntEnum
-from typing import Callable, Generator, Optional, Union
+from types import TracebackType
+from typing import Any, Callable, Generator, List, Optional, Type, Union
 
 import can
 import serial
@@ -161,14 +162,14 @@ class BlhostBase(object):
             10607  # Cannot swap flash because provided swap indicator is invalid
         )
 
-    def __init__(self, logger):
+    def __init__(self, logger: logging.Logger) -> None:
         self.logger = logger
 
         # Make sure sending data is always atomic
         self._send_lock = threading.Lock()
 
         # Used to re-send the previous packet if NAK is received
-        self._last_send_packet = None
+        self._last_send_packet: List[Any] = []
 
         # Flags used when uploading
         self._ack_response_event = threading.Event()
@@ -183,38 +184,44 @@ class BlhostBase(object):
         # Used to store memory data when reading
         self._memory_data = bytearray()
 
-    def _send_implementation(self, data: list):
+    def _send_implementation(self, data: List[Any]) -> None:
         raise NotImplementedError
 
-    def _send(self, data: list):
+    def _send(self, data: List[Any]) -> None:
         with self._send_lock:
             self._last_send_packet = data
             self._send_implementation(data)
 
-    def shutdown(self, timeout=1.0):
+    def shutdown(self, timeout: float = 1.0) -> None:
         raise NotImplementedError
 
-    def __enter__(self):
+    def __enter__(self) -> "BlhostBase":
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
+    def __exit__(self, exc_type: Type[BaseException], exc_value: BaseException, traceback: TracebackType) -> None:
         self.shutdown()
 
-    def ping(self, timeout=5.0) -> bool:
+    def ping(self, timeout: float = 5.0) -> bool:
         self.logger.info("BlhostBase: Sending ping command")
         self._ping_response_event.clear()
         data = [self.FramingPacketConstants.StartByte, self.FramingPacketConstants.Type_Ping]
         self._send(data)
         return self._ping_response_event.wait(timeout)
 
-    def reset(self, timeout=5.0) -> bool:
+    def reset(self, timeout: float = 5.0) -> bool:
         self.logger.info("BlhostBase: Sending reset command")
         self._reset_response_event.clear()
         self._command_packet(self.CommandTags.Reset, 0x00)
         return self._reset_response_event.wait(timeout)
 
     def upload(
-        self, binary_filename: str, start_address: int, erase_byte_count: int, timeout=5.0, ping_repeat=3, attempts=1
+        self,
+        binary_filename: str,
+        start_address: int,
+        erase_byte_count: int,
+        timeout: float = 5.0,
+        ping_repeat: int = 3,
+        attempts: int = 1,
     ) -> Generator[Union[float, bool], None, None]:
         if attempts < 1:
             raise ValueError('BlhostBase: "attempts" has to be greater than 0')
@@ -300,7 +307,7 @@ class BlhostBase(object):
 
         # We need to send the data in chunks of 32 bytes
         # When an ACK is received we can send the next chunk
-        yield 0  # The progress starts at 0 %
+        yield 0.0  # The progress starts at 0 %
         data_sent = 0
         for d in self.chunks(binary_data, 32):
             self._ack_response_event.clear()
@@ -322,12 +329,12 @@ class BlhostBase(object):
         self.logger.warning("BlhostBase: Timed out waiting for write memory response")
         return False
 
-    def _ack(self):
+    def _ack(self) -> None:
         data = [self.FramingPacketConstants.StartByte, self.FramingPacketConstants.Type_Ack]
         self._send(data)
 
     @staticmethod
-    def chunks(lst, n):
+    def chunks(lst: Union[list, bytes], n: int) -> Generator[Union[list, bytes], None, None]:
         for i in range(0, len(lst), n):
             yield lst[i : i + n]
 
@@ -348,7 +355,7 @@ class BlhostBase(object):
                 crc = temp
         return crc & 0xFFFF
 
-    def _framing_packet(self, packet_type: FramingPacketConstants, length: int, *payload):
+    def _framing_packet(self, packet_type: FramingPacketConstants, length: int, *payload: Any) -> None:
         # The CRC16 value is calculated on all the data
         crc16 = self.crc16Xmodem(
             [self.FramingPacketConstants.StartByte, packet_type, length & 0xFF, (length >> 8) & 0xFF, *payload]
@@ -370,29 +377,29 @@ class BlhostBase(object):
         # Send the data to the target
         self._send(data)
 
-    def _command_packet(self, tag: CommandTags, flags: int, *payload):
+    def _command_packet(self, tag: CommandTags, flags: int, *payload: Any) -> None:
         """Used for sending commands to the target"""
         self._framing_packet(
             self.FramingPacketConstants.Type_Command, 4 + len(payload), tag, flags, 0, len(payload), *payload
         )
 
-    def _data_packet(self, *payload):
+    def _data_packet(self, *payload: Any) -> None:
         """Used for sending data to the target"""
         self._framing_packet(self.FramingPacketConstants.Type_Data, len(payload), *payload)
 
-    def _get_property(self, property_tag: PropertyTag, memory_id=0):
+    def _get_property(self, property_tag: PropertyTag, memory_id: int = 0) -> None:
         # Memory ID: 0 = Internal flash, 0x01 = QSPI0 memory
         self._command_packet(
             self.CommandTags.GetProperty, 0x00, *[x for x in struct.Struct("<LL").pack(property_tag, memory_id)]
         )
 
-    def _flash_erase_region(self, start_address: int, byte_count: int):
+    def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
         self._command_packet(
             self.CommandTags.FlashEraseRegion, 0x00, *[x for x in struct.Struct("<LL").pack(start_address, byte_count)]
         )
 
     def read(
-        self, start_address: int, byte_count: int, timeout=5.0, ping_repeat=3
+        self, start_address: int, byte_count: int, timeout: float = 5.0, ping_repeat: int = 3
     ) -> Generator[Union[float, bytearray], None, None]:
         # Try to ping the target 3 times to make sure we can communicate with the bootloader
         for i in range(ping_repeat):
@@ -438,17 +445,17 @@ class BlhostBase(object):
 
         yield self._memory_data
 
-    def _read_memory(self, start_address: int, byte_count: int):
+    def _read_memory(self, start_address: int, byte_count: int) -> None:
         self._command_packet(
             self.CommandTags.ReadMemory, 0x00, *[x for x in struct.Struct("<LL").pack(start_address, byte_count)]
         )
 
-    def _write_memory(self, start_address: int, data: bytes):
+    def _write_memory(self, start_address: int, data: bytes) -> None:
         self._command_packet(
             self.CommandTags.WriteMemory, 0x00, *[x for x in struct.Struct("<LL").pack(start_address, len(data))]
         )
 
-    def _reliable_update(self, address=0):
+    def _reliable_update(self, address: int = 0) -> None:
         """
         Can be used to make the target perform "reliable update operation".
         Note it will also do this during reset
@@ -469,7 +476,7 @@ class BlhostBase(object):
         elif data[1] == self.FramingPacketConstants.Type_Nak:
             # The previous packet was corrupted and must be re-sent
             self.logger.warning("BlhostBase: Received NAK")
-            if self._last_send_packet is not None:
+            if len(self._last_send_packet) > 0:
                 self.logger.info("BlhostBase: Resending last packet")
                 self._send(self._last_send_packet)
         elif data[1] == self.FramingPacketConstants.Type_AckAbort:
@@ -590,14 +597,11 @@ class BlhostBase(object):
 
 
 class BlhostDataParser(object):
-    def __init__(self, logger):
+    def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
         self._data = bytearray()
         self._data_len = None  # type: Optional[int]
         self._data_crc = None  # type: Optional[int]
-
-    def __call__(self, data) -> Optional[bytearray]:
-        return self.parse(data)
 
     def parse(self, data: bytearray) -> Optional[bytearray]:
         """Parse the data sent from the target.
@@ -676,7 +680,10 @@ class BlhostDataParser(object):
 
 
 class BlhostCanListener(can.Listener):
-    def __init__(self, tx_id: int, _extended_id: bool, logger, callback_func: Callable[[bytearray], None]):
+    def __init__(
+        self, tx_id: int, _extended_id: bool, logger: logging.Logger, callback_func: Callable[[bytearray], None]
+    ) -> None:
+        super().__init__()
         self._tx_id = tx_id
         self._extended_id = _extended_id
         self._logger = logger
@@ -684,7 +691,7 @@ class BlhostCanListener(can.Listener):
         self._parser = BlhostDataParser(self._logger)
         self._stopped = False
 
-    def on_message_received(self, msg: can.Message):
+    def on_message_received(self, msg: can.Message) -> None:
         # We are only interested in frames from the target
         if (
             msg.is_error_frame
@@ -695,32 +702,32 @@ class BlhostCanListener(can.Listener):
             return
 
         # Parse the data and return it once it is fully parsed
-        data = self._parser(msg.data)
+        data = self._parser.parse(msg.data)
         if data is not None:
             self._callback_func(data)
 
-    def on_error(self, exc):
+    def on_error(self, exc: Exception) -> None:
         # Workaround issue with errors being printed when the interface is shutting down
         if not self._stopped:
             self._logger.exception("BlhostCanListener: on_error")
 
-    def stop(self):
+    def stop(self) -> None:
         self._stopped = True
 
 
 class BlhostCan(BlhostBase):
     def __init__(
         self,
-        tx_id,
-        rx_id,
-        logger,
-        interface="socketcan",
-        channel="can0",
-        bitrate=500000,
-        can_bus=None,
+        tx_id: int,
+        rx_id: int,
+        logger: logging.Logger,
+        interface: str = "socketcan",
+        channel: str = "can0",
+        bitrate: int = 500000,
+        can_bus: Optional[can.BusABC] = None,
         time_to_sleep_between_messages: Optional[int] = None,
-        extended_id=False,
-    ):
+        extended_id: bool = False,
+    ) -> None:
         super(BlhostCan, self).__init__(logger)
 
         # CAN-Bus IDs used for two-way communication with the target
@@ -758,7 +765,10 @@ class BlhostCan(BlhostBase):
             self._can_bus, [BlhostCanListener(self._tx_id, self._extended_id, self.logger, self._data_callback)]
         )
 
-    def _send_implementation(self, data: list):
+    def __enter__(self) -> "BlhostCan":
+        return self
+
+    def _send_implementation(self, data: List[Any]) -> None:
         # Send out the message in chunks of 8 bytes on the CAN-Bus
         for d in BlhostBase.chunks(data, 8):
             msg = can.Message(arbitration_id=self._rx_id, data=d, is_extended_id=self._extended_id)
@@ -766,14 +776,14 @@ class BlhostCan(BlhostBase):
             if self._time_to_sleep_between_messages is not None:
                 time.sleep(self._time_to_sleep_between_messages)
 
-    def shutdown(self, timeout=1.0):
+    def shutdown(self, timeout: float = 1.0) -> None:
         self._can_notifier.stop(timeout=timeout)
         if self._can_bus_shutdown:
             self._can_bus.shutdown()
 
 
 class BlhostSerial(BlhostBase):
-    def __init__(self, port, baudrate, logger):
+    def __init__(self, port: str, baudrate: int, logger: logging.Logger) -> None:
         super(BlhostSerial, self).__init__(logger)
 
         # Open the serial port, but read from it in a thread, so we are not blocking the main loop
@@ -787,31 +797,37 @@ class BlhostSerial(BlhostBase):
         self._thread.daemon = False  # Make sure the application joins this before closing down
         self._thread.start()
 
-    def _send_implementation(self, data: list):
+    def __enter__(self) -> "BlhostSerial":
+        return self
+
+    def _send_implementation(self, data: List[Any]) -> None:
         self._serial.write(data)
 
-    def shutdown(self, timeout=1.0):
+    def shutdown(self, timeout: float = 1.0) -> None:
         self._shutdown_thread.set()
         self._thread.join(timeout=timeout)
         self._serial.close()
 
     @staticmethod
     def _serial_read_thread(
-        ser: serial.Serial, shutdown_event: threading.Event, logger, callback_func: Callable[[bytearray], None]
-    ):
+        ser: Any,
+        shutdown_event: threading.Event,
+        logger: logging.Logger,
+        callback_func: Callable[[bytearray], None],
+    ) -> None:
         try:
             parser = BlhostDataParser(logger)
             while not shutdown_event.is_set() and ser.is_open:
                 data = ser.read()
                 if data:
-                    data = parser(bytearray(data))
+                    data = parser.parse(bytearray(data))
                     if data is not None:
                         callback_func(data)
         except Exception:
             logger.exception('BlhostSerial: Caught exception in "_serial_read_thread"')
 
 
-def cli():
+def cli() -> None:
     parser = argparse.ArgumentParser(prog="pyblhost", add_help=False, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument(
         "hw_interface", help="Communicate with the target via either CAN or serial", choices=["can", "serial"]
@@ -879,7 +895,7 @@ def cli():
         if parsed_args.tx_id is None or parsed_args.rx_id is None:
             parser.print_help()
             exit(1)
-        BlHostImpl = BlhostCan
+        BlHostImpl: Type[BlhostBase] = BlhostCan
         args, kwargs = [int(parsed_args.tx_id, base=0), int(parsed_args.rx_id, base=0)], {
             "interface": parsed_args.interface,
             "channel": parsed_args.channel,
@@ -901,21 +917,21 @@ def cli():
     logger.addHandler(stream_handler)
     kwargs["logger"] = logger
 
-    with BlHostImpl(*args, **kwargs) as blhost:
+    with BlHostImpl(*args, **kwargs) as blhost:  # type: ignore[arg-type]
         if parsed_args.command == "upload":
             if parsed_args.binary is None or parsed_args.start_address is None or parsed_args.byte_count is None:
                 parser.print_help()
                 exit(1)
             pbar = None
             result = False
-            for progress in blhost.upload(
+            for upload_progress in blhost.upload(
                 parsed_args.binary,
                 int(parsed_args.start_address, base=0),
                 int(parsed_args.byte_count, base=0),
                 timeout=parsed_args.timeout,
                 ping_repeat=parsed_args.cmd_repeat,
             ):
-                if not isinstance(progress, bool):
+                if not isinstance(upload_progress, bool):
                     if pbar is None:
                         # Create it here, so the progress is not printed before we actually start uploading
                         pbar = tqdm(
@@ -924,12 +940,12 @@ def cli():
                             bar_format="{l_bar}{bar}| [{elapsed}]",
                             dynamic_ncols=True,
                         )
-                    pbar.update(progress - pbar.n)
-                    if progress >= 100:
+                    pbar.update(upload_progress - pbar.n)
+                    if upload_progress >= 100.0:
                         # Ensure nothing is printed after the update finishes
                         pbar.close()
                 else:
-                    result = progress
+                    result = upload_progress
             if pbar is not None:
                 pbar.close()  # Make sure it is closed
             if result is True:
@@ -944,13 +960,13 @@ def cli():
                 exit(1)
             pbar = None
             data = None
-            for progress in blhost.read(
+            for read_progress in blhost.read(
                 int(parsed_args.start_address, base=0),
                 int(parsed_args.byte_count, base=0),
                 timeout=parsed_args.timeout,
                 ping_repeat=parsed_args.cmd_repeat,
             ):
-                if not isinstance(progress, bytearray):
+                if not isinstance(read_progress, bytearray):
                     if pbar is None:
                         # Create it here, so the progress is not printed before we actually start uploading
                         pbar = tqdm(
@@ -959,12 +975,12 @@ def cli():
                             bar_format="{l_bar}{bar}| [{elapsed}]",
                             dynamic_ncols=True,
                         )
-                    pbar.update(progress - pbar.n)
-                    if progress >= 100:
+                    pbar.update(read_progress - pbar.n)
+                    if read_progress >= 100.0:
                         # Ensure nothing is printed after the update finishes
                         pbar.close()
                 else:
-                    data = progress
+                    data = read_progress
             if pbar is not None:
                 pbar.close()  # Make sure it is closed
             if data is None:
