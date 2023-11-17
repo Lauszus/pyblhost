@@ -29,24 +29,24 @@ from pyblhost import BlhostSerial
 
 def main():
     # BlhostSerial specific arguments
-    port, baudrate = '/dev/ttyUSB0', 500000
+    port, baudrate = "/dev/ttyUSB0", 500000
 
     # Create a logger
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
+    stream_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logger.addHandler(stream_handler)
 
     with BlhostSerial(port, baudrate, logger) as blhost:
         for i in range(3):  # Try 3 times
             if blhost.reset(timeout=1):  # Wait 1 second for a response
-                logger.info('Ping responded in {} attempt(s)'.format(i + 1))
+                logger.info("Ping responded in {} attempt(s)".format(i + 1))
                 exit(0)
 
-        logger.error('Timed out waiting for ping response')
+        logger.error("Timed out waiting for ping response")
         exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

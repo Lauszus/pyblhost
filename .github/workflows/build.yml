@@ -34,17 +34,22 @@ jobs:
         python-version: 3.9
     - name: Update pip
       run: pip install -U pip setuptools wheel
+    - name: Check formatting with Black
+      run: |
+        # Stop the build if formatting is not correct
+        pip install -U black
+        black --check --diff .
     - name: Lint with flake8
       run: |
         # Stop the build if there are Python syntax errors or undefined names
-        pip install -U flake8!=6.0.0
-        flake8 pyblhost/*.py --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 pyblhost/*.py --count --max-line-length=300 --statistics
+        pip install -U flake8!=6.0.0 flake8-import-order flake8-pyproject
+        flake8 .
     - name: Static type checking
       run: |
         # Use mypy for static type checking
-        pip install -U mypy
-        mypy --config-file mypy.ini pyblhost/*.py
+        pip install -U mypy .
+        mkdir -p .mypy_cache  # Workaround issue with mypy: https://github.com/tk-woven/mypy-install-types-mre
+        mypy --install-types --non-interactive .
   release:
     needs: [sdist, checks]
     name: Release

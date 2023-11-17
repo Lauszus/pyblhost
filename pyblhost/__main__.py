@@ -22,6 +22,7 @@
 # Web      :  https://www.lauszus.com
 # e-mail   :  lauszus@gmail.com
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from .pyblhost import cli
+
     cli()

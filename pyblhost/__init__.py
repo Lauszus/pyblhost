@@ -22,8 +22,8 @@
 # Web      :  https://www.lauszus.com
 # e-mail   :  lauszus@gmail.com
 
-__version__ = '1.5.0'
+__version__ = "1.5.0"
 
-__all__ = ['BlhostCan', 'BlhostSerial']
+__all__ = ["BlhostCan", "BlhostSerial"]
 
 from .pyblhost import BlhostCan, BlhostSerial

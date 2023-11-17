@@ -35,11 +35,11 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
+    stream_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logger.addHandler(stream_handler)
 
     # Specify the binary write to, the start address to read from and the byte count to read
-    binary = 'memory.bin'
+    binary = "memory.bin"
     start_address, byte_count = 0x0C000, 0x34000
 
     with BlhostCan(tx_id, rx_id, logger) as blhost:
@@ -51,17 +51,17 @@ def main():
                 progress = round(progress)
                 if progress != old_progress:
                     old_progress = progress
-                    logger.info('Read memory progress: {} %'.format(progress))
+                    logger.info("Read memory progress: {} %".format(progress))
             else:
                 data = progress
         if data is None:
-            logger.error('Reading memory failed')
+            logger.error("Reading memory failed")
             exit(1)
-        with open(binary, 'wb') as f:
+        with open(binary, "wb") as f:
             f.write(data)
-        logger.info('Reading memory succeeded')
+        logger.info("Reading memory succeeded")
         exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
