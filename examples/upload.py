@@ -27,7 +27,7 @@ import logging
 from pyblhost import BlhostCan
 
 
-def main():
+def main() -> None:
     # BlhostCan specific arguments
     tx_id, rx_id = 0x123, 0x321
 
@@ -35,11 +35,11 @@ def main():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
+    stream_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logger.addHandler(stream_handler)
 
     # Specify the binary to upload, the start address to upload it to and the byte count to erase before uploading
-    binary = 'blink.bin'
+    binary = "blink.bin"
     start_address, byte_count = 0x4C000, 0x34000
 
     with BlhostCan(tx_id, rx_id, logger) as blhost:
@@ -51,17 +51,17 @@ def main():
                 progress = round(progress)
                 if progress != old_progress:
                     old_progress = progress
-                    logger.info('Upload progress: {} %'.format(progress))
+                    logger.info("Upload progress: {} %".format(progress))
             else:
                 # The result will be returned as a boolean
                 result = progress
         if result is True:
-            logger.info('Uploading succeeded')
+            logger.info("Uploading succeeded")
             exit(0)
         else:
-            logger.error('Uploading failed')
+            logger.error("Uploading failed")
             exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

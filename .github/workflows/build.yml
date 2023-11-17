@@ -5,14 +5,14 @@ on: [push, pull_request]
 jobs:
   sdist:
     name: Build sdist
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python 3.9
+    - name: Set up Python 3.8
       uses: actions/setup-python@v2
       with:
-        python-version: 3.9
+        python-version: 3.8
     - name: Install dependencies
       run: pip install -U pip setuptools wheel
     - name: Build sdist
@@ -24,38 +24,43 @@ jobs:
         path: dist
   checks:
     name: Checks
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python 3.9
+    - name: Set up Python 3.8
       uses: actions/setup-python@v2
       with:
-        python-version: 3.9
+        python-version: 3.8
     - name: Update pip
       run: pip install -U pip setuptools wheel
+    - name: Check formatting with Black
+      run: |
+        # Stop the build if formatting is not correct
+        pip install -U black
+        black --check --diff .
     - name: Lint with flake8
       run: |
         # Stop the build if there are Python syntax errors or undefined names
-        pip install -U flake8!=6.0.0
-        flake8 pyblhost/*.py --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 pyblhost/*.py --count --max-line-length=300 --statistics
+        pip install -U flake8!=6.0.0 flake8-import-order flake8-pyproject
+        flake8 .
     - name: Static type checking
       run: |
         # Use mypy for static type checking
-        pip install -U mypy
-        mypy --config-file mypy.ini pyblhost/*.py
+        pip install -U mypy .
+        mkdir -p .mypy_cache  # Workaround issue with mypy: https://github.com/tk-woven/mypy-install-types-mre
+        mypy --install-types --non-interactive .
   release:
     needs: [sdist, checks]
     name: Release
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 5
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-    - name: Set up Python 3.9
+    - name: Set up Python 3.8
       uses: actions/setup-python@v2
       with:
-        python-version: 3.9
+        python-version: 3.8
     - uses: actions/download-artifact@v2
       with:
         name: pyblhost-${{ github.sha }}

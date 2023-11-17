@@ -4,3 +4,41 @@ requires = [
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 120
+skip-string-normalization = false
+exclude = '/(\.git|\.cache|\.mypy_cache|\.pytest_cache|\.tox|\.venv|venv|\.eggs)/'
+
+[tool.flake8]
+deps = [
+    "flake8",
+    "flake8-import-order",
+    "flake8-pyproject",
+]
+commands = [
+    "flake8",
+]
+import-order-style = "pycharm"
+max-line-length = 120
+extend-ignore = "E203"
+extend-exclude = ".git,.cache,.eggs,.mypy_cache,.pytest_cache,.tox,.venv,venv,migrations"
+
+[tool.mypy]
+python_version = "3.8"
+exclude = ["venv", "build"]
+
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+check_untyped_defs = true
+warn_return_any = true
+show_error_codes = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+    "setuptools",
+    "serial.*",
+]
+ignore_missing_imports = true

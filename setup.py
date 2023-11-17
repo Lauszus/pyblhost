@@ -24,42 +24,44 @@
 
 import re
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
-with open('pyblhost/__init__.py', 'r') as f:
-    version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
-                        f.read(), re.MULTILINE).group(1)
+with open("pyblhost/__init__.py", "r") as f:
+    match = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', f.read(), re.MULTILINE)
+    if match is None:
+        raise Exception('Missing version in "pyblhost/__init__.py"')
+    version = match.group(1)
 
-with open('README.md', 'r') as f:
+with open("README.md", "r") as f:
     long_description = f.read()
 
-with open('requirements.txt', 'r') as f:
+with open("requirements.txt", "r") as f:
     install_requires = f.read().splitlines()
 
 setup(
-    name='pyblhost',
+    name="pyblhost",
     version=version,
     packages=find_packages(),
     package_data={
-        'pyblhost': ['py.typed'],
+        "pyblhost": ["py.typed"],
     },
-    url='https://github.com/Lauszus/pyblhost',
-    license='GPLv3',
-    author='Kristian Sloth Lauszus',
-    author_email='lauszus@gmail.com',
-    description='Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader',
+    url="https://github.com/Lauszus/pyblhost",
+    license="GPLv3",
+    author="Kristian Sloth Lauszus",
+    author_email="lauszus@gmail.com",
+    description="Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader",
     long_description=long_description,
-    long_description_content_type='text/markdown',
+    long_description_content_type="text/markdown",
     install_requires=install_requires,
     entry_points={
-        'console_scripts': [
-            'pyblhost = pyblhost.pyblhost:cli',
+        "console_scripts": [
+            "pyblhost = pyblhost.pyblhost:cli",
         ],
     },
-    python_requires='>=3.0',
+    python_requires=">=3.8",
     classifiers=[
-        'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
-        'Operating System :: OS Independent',
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Operating System :: OS Independent",
     ],
 )
