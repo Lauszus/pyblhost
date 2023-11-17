@@ -28,7 +28,7 @@ import struct
 import threading
 import time
 from enum import IntEnum
-from typing import Callable, Optional, Generator, Union
+from typing import Callable, Generator, Optional, Union
 
 import can
 import serial
