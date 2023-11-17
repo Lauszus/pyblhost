@@ -55,7 +55,7 @@ setup(
             "pyblhost = pyblhost.pyblhost:cli",
         ],
     },
-    python_requires=">=3.0",
+    python_requires=">=3.8",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",

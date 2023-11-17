@@ -25,7 +25,7 @@ extend-ignore = "E203"
 extend-exclude = ".git,.cache,.eggs,.mypy_cache,.pytest_cache,.tox,.venv,venv,migrations"
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.8"
 exclude = ["venv", "build"]
 
 disallow_untyped_defs = true
