@@ -910,7 +910,7 @@ def cli() -> None:
         args, kwargs = [parsed_args.port, parsed_args.baudrate], {}
 
     # Print all log output directly in the terminal
-    logger = logging.getLogger()
+    logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
