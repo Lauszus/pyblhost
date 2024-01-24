@@ -69,6 +69,7 @@ jobs:
       run: |
         pip install -U pip setuptools wheel
         pip install -U twine
+        twine check pyblhost/*
         twine upload -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} pyblhost/*
     - name: Publish to Github Release
       uses: softprops/action-gh-release@v1
