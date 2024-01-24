@@ -65,14 +65,17 @@ jobs:
       with:
         name: pyblhost-${{ github.sha }}
         path: pyblhost
-    - name: Publish PyPI
+    - name: Publish to PyPI
+      id: pypi
       run: |
         pip install -U pip setuptools wheel
         pip install -U twine
         twine check pyblhost/*
         twine upload -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} pyblhost/*
     - name: Publish to Github Release
+      if: ${{ ! cancelled() && steps.pypi.conclusion == 'success' }}
       uses: softprops/action-gh-release@v1
       with:
         files: pyblhost/*
         draft: true
+        fail_on_unmatched_files: true
