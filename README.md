@@ -29,7 +29,10 @@ See the [examples](examples) directory for Python examples.
 
 ```
 $ pyblhost -h
-usage: pyblhost [-tx TX_ID] [-rx RX_ID] [-i INTERFACE] [-l CHANNEL] [-p PORT] [-h] [--version] [-B BINARY] [-s START_ADDRESS] [-c BYTE_COUNT] [-t TIMEOUT] [-r CMD_REPEAT] [-b BAUDRATE] {can,serial} {upload,read,ping,reset}
+usage: pyblhost [-tx TX_ID] [-rx RX_ID] [-e EXTENDED_ID] [-i INTERFACE] [-l CHANNEL] [-p PORT]
+                [-h] [--version] [-B BINARY] [-s START_ADDRESS] [-c BYTE_COUNT] [-t TIMEOUT]
+                [-r CMD_REPEAT] [-b BAUDRATE]
+                {can,serial} {upload,read,ping,reset}
 
 positional arguments:
   {can,serial}          Communicate with the target via either CAN or serial
@@ -46,6 +49,8 @@ required CAN arguments:
                         The RX ID (in hex) to use for CAN
 
 optional CAN arguments:
+  -e EXTENDED_ID, --extended-id EXTENDED_ID
+                        CAN ID is an extended ID
   -i INTERFACE, --interface INTERFACE
                         The CAN-Bus interface to use (default "socketcan")
   -l CHANNEL, --channel CHANNEL
