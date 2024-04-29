@@ -180,6 +180,7 @@ class BlhostBase(object):
         self._read_memory_response_event = threading.Event()
         self._data_event = threading.Event()
         self._ping_response_event = threading.Event()
+        self._get_command_response_event = threading.Event()
 
         # Used to store memory data when reading
         self._memory_data = bytearray()
@@ -189,8 +190,22 @@ class BlhostBase(object):
 
     def _send(self, data: List[Any]) -> None:
         with self._send_lock:
+            hex = "0x" + "".join("{:02X}".format(x) for x in data)
+            self.logger.debug("BlhostBase: Sending data: {}".format(hex))
             self._last_send_packet = data
             self._send_implementation(data)
+
+    def get_property(self, property_tag: PropertyTag, memory_id: int, timeout: float = 5.0) -> bool:
+        if not self.ping(timeout=timeout):
+            self.logger.error("BlhostBase: Target did not respond to ping")
+            return False
+        # KBOOT responds to getProperty with a GenericResponse
+        # MCUBOOT responds to getProperty with a GetPropertyResponse
+        # Because Python does not have a "wait for event1 or event2" API,
+        # we use a CommandResponse event to catch both cases
+        self._get_command_response_event.clear()
+        self._get_property(property_tag, memory_id)
+        return self._get_command_response_event.wait(timeout)
 
     def shutdown(self, timeout: float = 1.0) -> None:
         raise NotImplementedError
@@ -222,6 +237,8 @@ class BlhostBase(object):
         timeout: float = 5.0,
         ping_repeat: int = 3,
         attempts: int = 1,
+        reset: bool = True,
+        assume_success: bool = False,
     ) -> Generator[Union[float, bool], None, None]:
         if attempts < 1:
             raise ValueError('BlhostBase: "attempts" has to be greater than 0')
@@ -242,7 +259,7 @@ class BlhostBase(object):
             try:
                 # Yield a progress while uploading and store the return value
                 upload_result = yield from self._upload(
-                    binary_data, start_address, erase_byte_count, timeout, ping_repeat
+                    binary_data, start_address, erase_byte_count, timeout, ping_repeat, assume_success
                 )
 
                 # We need to clear the backup region if uploading fails.
@@ -260,7 +277,7 @@ class BlhostBase(object):
                         )
             finally:
                 # Make sure the target is always reset
-                if not self.reset(timeout=timeout):
+                if reset and not self.reset(timeout=timeout):
                     # This is BAD. This could make the target stay in bootloader mode!
                     self.logger.error("BlhostBase: Timed out waiting for reset response")
                     upload_result = False
@@ -273,7 +290,13 @@ class BlhostBase(object):
         yield upload_result
 
     def _upload(
-        self, binary_data: bytes, start_address: int, erase_byte_count: int, timeout: float, ping_repeat: int
+            self,
+            binary_data: bytes,
+            start_address: int,
+            erase_byte_count: int,
+            timeout: float,
+            ping_repeat: int,
+            assume_success: bool = False,
     ) -> Generator[float, None, bool]:
         # Try to ping the target 3 times to make sure we can communicate with the bootloader
         for i in range(ping_repeat):
@@ -326,8 +349,8 @@ class BlhostBase(object):
             # status code."
             return True
 
-        self.logger.warning("BlhostBase: Timed out waiting for write memory response")
-        return False
+        self.logger.warning(f"BlhostBase: Timed out waiting for write memory response, returning {assume_success}")
+        return assume_success
 
     def _ack(self) -> None:
         data = [self.FramingPacketConstants.StartByte, self.FramingPacketConstants.Type_Ack]
@@ -464,6 +487,8 @@ class BlhostBase(object):
 
     # This will be called by the listener i.e. in a different thread!
     def _data_callback(self, data: bytearray) -> None:
+        hex = "0x" + "".join("{:02X}".format(x) for x in data)
+        self.logger.debug("BlhostBase: Received data: {}".format(hex))
         if data[0] != self.FramingPacketConstants.StartByte:
             self.logger.error("BlhostBase: Invalid start byte: {}".format(data))
             return
@@ -501,6 +526,14 @@ class BlhostBase(object):
 
             if tag == self.ResponseTags.GenericResponse:
                 command_tag = struct.Struct("<L").unpack(data[14:])[0]
+                # log the parameter value in a generic way
+                # to print KBOOT getProperty responses
+                self.logger.log(
+                    level,
+                    "BlhostBase: ResponseTags.GenericResponse: status: {}, parameter: {}".format(
+                        status_name, command_tag
+                    ),
+                )
 
                 # Check which command tag the response was for
                 if command_tag == self.CommandTags.Reset:
@@ -572,6 +605,7 @@ class BlhostBase(object):
             #     pass
             else:
                 self.logger.error("BlhostBase: Unhandled command tag: {}".format(tag))
+            self._get_command_response_event.set()
         elif data[1] == self.FramingPacketConstants.Type_Data:
             # Acknowledge that we received the response
             self._ack()
@@ -840,8 +874,9 @@ def cli() -> None:
         "read: read memory from START_ADDRESS to START_ADDRESS + BYTE_COUNT. "
         "the read data will be stored in BINARY\n"
         "ping: send a ping command to the target and check for a response\n"
-        "reset: send a reset command to the target and check for a response",
-        choices=["upload", "read", "ping", "reset"],
+        "reset: send a reset command to the target and check for a response\n"
+        "get_property: get a property from the target",
+        choices=["upload", "read", "ping", "reset", "get_property"],
     )
 
     # Options for "can"
@@ -890,6 +925,11 @@ def cli() -> None:
         type=int,
         default=500000,
     )
+    optional.add_argument("--prop", help="The property tag to get", type=int, default=0)
+    optional.add_argument("--reset", help="Reset the target after upload", type=bool default=True)
+    optional.add_argument("-v", "--verbose", help="Increase output verbosity", action="store_true")
+    optional.add_argument("-a", "--assume-success", help="Assume success if the upload fails", action="store_true")
+
 
     parsed_args = parser.parse_args()
     if parsed_args.hw_interface == "can":
@@ -912,6 +952,10 @@ def cli() -> None:
 
     # Print all log output directly in the terminal
     logger = logging.getLogger(__name__)
+    if parsed_args.verbose:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
     logger.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
@@ -931,6 +975,8 @@ def cli() -> None:
                 int(parsed_args.byte_count, base=0),
                 timeout=parsed_args.timeout,
                 ping_repeat=parsed_args.cmd_repeat,
+                reset=parsed_args.reset,
+                assume_success=parsed_args.assume_success,
             ):
                 if not isinstance(upload_progress, bool):
                     if pbar is None:
@@ -999,6 +1045,10 @@ def cli() -> None:
 
             blhost.logger.error("Timed out waiting for ping response")
             exit(1)
+        elif parsed_args.command == "get_property":
+            if not blhost.get_property(parsed_args.prop, memory_id=0, timeout=parsed_args.timeout):
+                blhost.logger.error("Timed out waiting for property")
+                exit(1)
         else:
             for i in range(parsed_args.cmd_repeat):
                 if blhost.reset(timeout=parsed_args.timeout):
