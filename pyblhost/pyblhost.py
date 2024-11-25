@@ -193,7 +193,7 @@ class BlhostBase(object):
             self._last_send_packet = data
             self._send_implementation(data)
 
-    def get_property(self, property_tag: PropertyTag, memory_id: int, timeout: float = 5.0) -> bool:
+    def get_property(self, property_tag: PropertyTag, memory_id: int = 0, timeout: float = 5.0) -> bool:
         if not self.ping(timeout=timeout):
             self.logger.error("BlhostBase: Target did not respond to ping")
             return False
@@ -1041,7 +1041,7 @@ def cli() -> None:
             blhost.logger.error("Timed out waiting for ping response")
             exit(1)
         elif parsed_args.command == "get_property":
-            if not blhost.get_property(parsed_args.prop, memory_id=0, timeout=parsed_args.timeout):
+            if not blhost.get_property(parsed_args.prop, timeout=parsed_args.timeout):
                 blhost.logger.error("Timed out waiting for property")
                 exit(1)
         else:
