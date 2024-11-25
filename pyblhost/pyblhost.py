@@ -339,7 +339,7 @@ class BlhostBase(object):
             yield lst[i : i + n]
 
     @staticmethod
-    def crc16Xmodem(data: Union[bytes, list], crc_init: int = 0) -> int:
+    def crc16_xmodem(data: Union[bytes, list], crc_init: int = 0) -> int:
         """
         Calculate XMODEM 16-bit CRC from input data
         :param data: Input data
@@ -357,7 +357,7 @@ class BlhostBase(object):
 
     def _framing_packet(self, packet_type: FramingPacketConstants, length: int, *payload: Any) -> None:
         # The CRC16 value is calculated on all the data
-        crc16 = self.crc16Xmodem(
+        crc16 = self.crc16_xmodem(
             [self.FramingPacketConstants.StartByte, packet_type, length & 0xFF, (length >> 8) & 0xFF, *payload]
         )
 
@@ -660,10 +660,10 @@ class BlhostDataParser(object):
         # Check if we are done reading the packet
         if self._data_len is not None and len(self._data) >= self._data_len and self._data_crc is not None:
             if self._data[1] == BlhostBase.FramingPacketConstants.Type_PingResponse:
-                crc = BlhostBase.crc16Xmodem(self._data[:8])
+                crc = BlhostBase.crc16_xmodem(self._data[:8])
             else:
-                crc = BlhostBase.crc16Xmodem(self._data[:4])
-                crc = BlhostBase.crc16Xmodem(self._data[6 : self._data_len], crc)
+                crc = BlhostBase.crc16_xmodem(self._data[:4])
+                crc = BlhostBase.crc16_xmodem(self._data[6 : self._data_len], crc)
             match = crc == self._data_crc
             if not match:
                 self._logger.error(
@@ -681,11 +681,11 @@ class BlhostDataParser(object):
 
 class BlhostCanListener(can.Listener):
     def __init__(
-        self, tx_id: int, _extended_id: bool, logger: logging.Logger, callback_func: Callable[[bytearray], None]
+        self, tx_id: int, extended_id: bool, logger: logging.Logger, callback_func: Callable[[bytearray], None]
     ) -> None:
         super().__init__()
         self._tx_id = tx_id
-        self._extended_id = _extended_id
+        self._extended_id = extended_id
         self._logger = logger
         self._callback_func = callback_func
         self._parser = BlhostDataParser(self._logger)
@@ -694,7 +694,8 @@ class BlhostCanListener(can.Listener):
     def on_message_received(self, msg: can.Message) -> None:
         # We are only interested in frames from the target
         if (
-            msg.is_error_frame
+            self._stopped
+            or msg.is_error_frame
             or msg.is_remote_frame
             or msg.is_extended_id != self._extended_id
             or msg.arbitration_id != self._tx_id
