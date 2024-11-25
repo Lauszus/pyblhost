@@ -190,8 +190,6 @@ class BlhostBase(object):
 
     def _send(self, data: List[Any]) -> None:
         with self._send_lock:
-            hex = "0x" + "".join("{:02X}".format(x) for x in data)
-            self.logger.debug("BlhostBase: Sending data: {}".format(hex))
             self._last_send_packet = data
             self._send_implementation(data)
 
@@ -487,8 +485,6 @@ class BlhostBase(object):
 
     # This will be called by the listener i.e. in a different thread!
     def _data_callback(self, data: bytearray) -> None:
-        hex = "0x" + "".join("{:02X}".format(x) for x in data)
-        self.logger.debug("BlhostBase: Received data: {}".format(hex))
         if data[0] != self.FramingPacketConstants.StartByte:
             self.logger.error("BlhostBase: Invalid start byte: {}".format(data))
             return
