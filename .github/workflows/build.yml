@@ -14,10 +14,12 @@ jobs:
       with:
         python-version: 3.8
     - name: Install dependencies
-      run: pip install -U pip setuptools wheel
-    - name: Build sdist
-      run: python setup.py sdist
-    - name: Upload sdist as artifact
+      run: |
+        pip install -U pip setuptools wheel
+        pip install -U build
+    - name: Build dist
+      run: python -m build --sdist --wheel
+    - name: Upload dist as artifact
       uses: actions/upload-artifact@v4
       with:
         name: pyblhost-${{ github.sha }}
