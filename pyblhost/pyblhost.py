@@ -288,13 +288,13 @@ class BlhostBase(object):
         yield upload_result
 
     def _upload(
-            self,
-            binary_data: bytes,
-            start_address: int,
-            erase_byte_count: int,
-            timeout: float,
-            ping_repeat: int,
-            assume_success: bool = False,
+        self,
+        binary_data: bytes,
+        start_address: int,
+        erase_byte_count: int,
+        timeout: float,
+        ping_repeat: int,
+        assume_success: bool = False,
     ) -> Generator[float, None, bool]:
         # Try to ping the target 3 times to make sure we can communicate with the bootloader
         for i in range(ping_repeat):
