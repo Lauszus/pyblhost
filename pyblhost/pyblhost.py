@@ -926,7 +926,7 @@ def cli() -> None:
         default=500000,
     )
     optional.add_argument("--prop", help="The property tag to get", type=int, default=0)
-    optional.add_argument("--reset", help="Reset the target after upload", type=bool default=True)
+    optional.add_argument("--reset", help="Reset the target after upload", type=bool, default=True)
     optional.add_argument("-v", "--verbose", help="Increase output verbosity", action="store_true")
     optional.add_argument("-a", "--assume-success", help="Assume success if the upload fails", action="store_true")
 
@@ -956,7 +956,6 @@ def cli() -> None:
         logger.setLevel(logging.DEBUG)
     else:
         logger.setLevel(logging.INFO)
-    logger.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logger.addHandler(stream_handler)
