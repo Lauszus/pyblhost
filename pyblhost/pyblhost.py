@@ -921,11 +921,10 @@ def cli() -> None:
         type=int,
         default=500000,
     )
-    optional.add_argument("--prop", help="The property tag to get", type=int, default=0)
-    optional.add_argument("--reset", help="Reset the target after upload", type=bool, default=True)
+    optional.add_argument("--prop", "--property", help="The property tag to get (default 0)", type=int, default=0)
+    optional.add_argument("--no-reset", help="Do not reset the target after upload", action="store_true")
     optional.add_argument("-v", "--verbose", help="Increase output verbosity", action="store_true")
-    optional.add_argument("-a", "--assume-success", help="Assume success if the upload fails", action="store_true")
-
+    optional.add_argument("--assume-success", help="Assume success if uploading fails", action="store_true")
 
     parsed_args = parser.parse_args()
     if parsed_args.hw_interface == "can":
@@ -970,7 +969,7 @@ def cli() -> None:
                 int(parsed_args.byte_count, base=0),
                 timeout=parsed_args.timeout,
                 ping_repeat=parsed_args.cmd_repeat,
-                reset=parsed_args.reset,
+                reset=not parsed_args.no_reset,
                 assume_success=parsed_args.assume_success,
             ):
                 if not isinstance(upload_progress, bool):
