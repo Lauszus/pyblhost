@@ -64,7 +64,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: 3.8
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v5
       with:
         name: pyblhost-${{ github.sha }}
         path: pyblhost
