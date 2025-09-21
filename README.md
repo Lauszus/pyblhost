@@ -1,6 +1,6 @@
 # pyblhost
 
-#### Developed by Kristian Sloth Lauszus, 2020-2022
+#### Developed by Kristian Sloth Lauszus, 2020-2025
 
 The code is released under the GNU General Public License v3.0.
 _________
@@ -15,7 +15,7 @@ Currently serial and CAN-Bus interfaces are supported.
 
 ## Installation
 
-```
+```bash
 pip install pyblhost
 ```
 
@@ -27,10 +27,27 @@ See the [examples](examples) directory for Python examples.
 
 ### CLI
 
+I recommend using [uvx](https://github.com/astral-sh/uv) to run the CLI tool:
+
+```bash
+uvx pyblhost --help
 ```
-$ pyblhost -h
-usage: pyblhost [-tx TX_ID] [-rx RX_ID] [-e EXTENDED_ID] [-i INTERFACE] [-l CHANNEL] [-p PORT] [-h] [--version] [-B BINARY] [-s START_ADDRESS] [-c BYTE_COUNT] [-t TIMEOUT] [-r CMD_REPEAT] [-b BAUDRATE]
-                [--prop PROP] [--no-reset] [-v] [--assume-success]
+
+Or you can install it in your path:
+
+```bash
+uv tool install pyblhost
+pyblhost --help
+```
+
+__Usage__
+
+```
+usage: pyblhost [-tx TX_ID] [-rx RX_ID] [-e EXTENDED_ID] [-i INTERFACE]
+                [-l CHANNEL] [-p PORT] [-h] [--version] [-B BINARY]
+                [-s START_ADDRESS] [-c BYTE_COUNT] [-t TIMEOUT]
+                [-r CMD_REPEAT] [-b BAUDRATE] [--prop PROP] [--no-reset] [-v]
+                [--assume-success]
                 {can,serial} {upload,read,ping,reset,get_property}
 
 positional arguments:
@@ -83,40 +100,40 @@ optional arguments:
 
 __Upload__
 
-```
-pyblhost can upload -tx 0x123 -rx 0x321 -B blink.bin -s 0x4C000 -c 0x34000
+```bash
+uvx pyblhost can upload -tx 0x123 -rx 0x321 -B blink.bin -s 0x4C000 -c 0x34000
 ```
 
-```
-pyblhost serial upload -p /dev/ttyUSB0 -b 500000 -B blink.bin -s 0x4C000 -c 0x34000
+```bash
+uvx pyblhost serial upload -p /dev/ttyUSB0 -b 500000 -B blink.bin -s 0x4C000 -c 0x34000
 ```
 
 __Read__
 
-```
-pyblhost can read -tx 0x123 -rx 0x321 -B memory.bin -s 0xC000 -c 0x34000
+```bash
+uvx pyblhost can read -tx 0x123 -rx 0x321 -B memory.bin -s 0xC000 -c 0x34000
 ```
 
-```
-pyblhost serial read -p /dev/ttyUSB0 -b 500000 -B memory.bin -s 0xC000 -c 0x34000
+```bash
+uvx pyblhost serial read -p /dev/ttyUSB0 -b 500000 -B memory.bin -s 0xC000 -c 0x34000
 ```
 
 __Ping__
 
-```
-pyblhost can ping -tx 0x123 -rx 0x321
+```bash
+uvx pyblhost can ping -tx 0x123 -rx 0x321
 ```
 
-```
-pyblhost serial ping -p /dev/ttyUSB0 -b 500000
+```bash
+uvx pyblhost serial ping -p /dev/ttyUSB0 -b 500000
 ```
 
 __Reset__
 
-```
-pyblhost can reset -tx 0x123 -rx 0x321
+```bash
+uvx pyblhost can reset -tx 0x123 -rx 0x321
 ```
 
-```
-pyblhost serial reset -p /dev/ttyUSB0 -b 500000
+```bash
+uvx pyblhost serial reset -p /dev/ttyUSB0 -b 500000
 ```
