@@ -1,3 +1,0 @@
-tqdm
-python-can >= 4.3.0
-pyserial

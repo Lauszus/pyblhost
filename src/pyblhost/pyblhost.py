@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader.
-# Copyright (C) 2020-2022  Kristian Sloth Lauszus.
+# Copyright (C) 2020-2025  Kristian Sloth Lauszus.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,23 +22,28 @@
 # Web      :  https://www.lauszus.com
 # e-mail   :  lauszus@gmail.com
 
+from __future__ import annotations
+
 import argparse
 import logging
 import struct
+import sys
 import threading
 import time
+from collections.abc import Generator, Sequence
 from enum import IntEnum
 from types import TracebackType
-from typing import Any, Callable, Generator, List, Optional, Type, Union
+from typing import Any, Callable
 
 import can
 import serial
 from tqdm import tqdm
+from typing_extensions import Self
 
 from . import __version__
 
 
-class BlhostBase(object):
+class BlhostBase:
     """
     Implemented based on "Kinetis Bootloader v2.0.0 Reference Manual.pdf" and
     existing blhost application: https://github.com/Lauszus/blhost
@@ -169,7 +174,7 @@ class BlhostBase(object):
         self._send_lock = threading.Lock()
 
         # Used to re-send the previous packet if NAK is received
-        self._last_send_packet: List[Any] = []
+        self._last_send_packet: list[int] = []
 
         # Flags used when uploading
         self._ack_response_event = threading.Event()
@@ -185,10 +190,10 @@ class BlhostBase(object):
         # Used to store memory data when reading
         self._memory_data = bytearray()
 
-    def _send_implementation(self, data: List[Any]) -> None:
+    def _send_implementation(self, data: list[int]) -> None:
         raise NotImplementedError
 
-    def _send(self, data: List[Any]) -> None:
+    def _send(self, data: list[int]) -> None:
         with self._send_lock:
             self._last_send_packet = data
             self._send_implementation(data)
@@ -208,16 +213,21 @@ class BlhostBase(object):
     def shutdown(self, timeout: float = 1.0) -> None:
         raise NotImplementedError
 
-    def __enter__(self) -> "BlhostBase":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Type[BaseException], exc_value: BaseException, traceback: TracebackType) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.shutdown()
 
     def ping(self, timeout: float = 5.0) -> bool:
         self.logger.info("BlhostBase: Sending ping command")
         self._ping_response_event.clear()
-        data = [self.FramingPacketConstants.StartByte, self.FramingPacketConstants.Type_Ping]
+        data = [int(self.FramingPacketConstants.StartByte), int(self.FramingPacketConstants.Type_Ping)]
         self._send(data)
         return self._ping_response_event.wait(timeout)
 
@@ -237,10 +247,10 @@ class BlhostBase(object):
         attempts: int = 1,
         reset: bool = True,
         assume_success: bool = False,
-    ) -> Generator[Union[float, bool], None, None]:
+    ) -> Generator[float | bool]:
         if attempts < 1:
             raise ValueError('BlhostBase: "attempts" has to be greater than 0')
-        self.logger.info('BlhostBase: Uploading "{}" to 0x{:X}'.format(binary_filename, start_address))
+        self.logger.info(f'BlhostBase: Uploading "{binary_filename}" to 0x{start_address:X}')
 
         # Read the binary data from the file
         with open(binary_filename, "rb") as f:
@@ -263,9 +273,8 @@ class BlhostBase(object):
                 # We need to clear the backup region if uploading fails.
                 if not upload_result:
                     self.logger.error(
-                        "BlhostBase: Uploading failed. Erasing flash region: 0x{:X} -> 0x{:X}".format(
-                            start_address, start_address + erase_byte_count
-                        )
+                        f"BlhostBase: Uploading failed. Erasing flash region: "
+                        f"0x{start_address:X} -> 0x{start_address + erase_byte_count:X}"
                     )
                     self._flash_erase_region_response_event.clear()
                     self._flash_erase_region(start_address, erase_byte_count)
@@ -299,7 +308,7 @@ class BlhostBase(object):
         # Try to ping the target 3 times to make sure we can communicate with the bootloader
         for i in range(ping_repeat):
             if self.ping(timeout=timeout):
-                self.logger.info("BlhostBase: Ping responded in {} attempt(s)".format(i + 1))
+                self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
                 break
         else:
             self.logger.warning("BlhostBase: Target did not respond to ping")
@@ -308,7 +317,7 @@ class BlhostBase(object):
         # First erase the region of memory where application will be located
         # The application will be flashed when this command succeeds
         self.logger.info(
-            "BlhostBase: Erasing flash region: 0x{:X} -> 0x{:X}".format(start_address, start_address + erase_byte_count)
+            f"BlhostBase: Erasing flash region: 0x{start_address:X} -> 0x{start_address + erase_byte_count:X}"
         )
         self._flash_erase_region_response_event.clear()
         self._flash_erase_region(start_address, erase_byte_count)
@@ -351,16 +360,16 @@ class BlhostBase(object):
         return assume_success
 
     def _ack(self) -> None:
-        data = [self.FramingPacketConstants.StartByte, self.FramingPacketConstants.Type_Ack]
+        data = [int(self.FramingPacketConstants.StartByte), int(self.FramingPacketConstants.Type_Ack)]
         self._send(data)
 
     @staticmethod
-    def chunks(lst: Union[list, bytes], n: int) -> Generator[Union[list, bytes], None, None]:
+    def chunks(lst: Sequence[Any], n: int) -> Generator[Sequence[Any]]:
         for i in range(0, len(lst), n):
             yield lst[i : i + n]
 
     @staticmethod
-    def crc16_xmodem(data: Union[bytes, list], crc_init: int = 0) -> int:
+    def crc16_xmodem(data: bytes | bytearray | list[int], crc_init: int = 0) -> int:
         """
         Calculate XMODEM 16-bit CRC from input data
         :param data: Input data
@@ -411,21 +420,21 @@ class BlhostBase(object):
     def _get_property(self, property_tag: PropertyTag, memory_id: int = 0) -> None:
         # Memory ID: 0 = Internal flash, 0x01 = QSPI0 memory
         self._command_packet(
-            self.CommandTags.GetProperty, 0x00, *[x for x in struct.Struct("<LL").pack(property_tag, memory_id)]
+            self.CommandTags.GetProperty, 0x00, *list(struct.Struct("<LL").pack(property_tag, memory_id))
         )
 
     def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
         self._command_packet(
-            self.CommandTags.FlashEraseRegion, 0x00, *[x for x in struct.Struct("<LL").pack(start_address, byte_count)]
+            self.CommandTags.FlashEraseRegion, 0x00, *list(struct.Struct("<LL").pack(start_address, byte_count))
         )
 
     def read(
         self, start_address: int, byte_count: int, timeout: float = 5.0, ping_repeat: int = 3
-    ) -> Generator[Union[float, bytearray], None, None]:
+    ) -> Generator[float | bytearray]:
         # Try to ping the target 3 times to make sure we can communicate with the bootloader
         for i in range(ping_repeat):
             if self.ping(timeout=timeout):
-                self.logger.info("BlhostBase: Ping responded in {} attempt(s)".format(i + 1))
+                self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
                 break
         else:
             self.logger.warning("BlhostBase: Target did not respond to ping")
@@ -458,9 +467,7 @@ class BlhostBase(object):
 
         if len(self._memory_data) != byte_count:
             self.logger.error(
-                "BlhostBase: Memory data does not have the correct length: {} != {}".format(
-                    len(self._memory_data), byte_count
-                )
+                f"BlhostBase: Memory data does not have the correct length: {len(self._memory_data)} != {byte_count}"
             )
             return
 
@@ -468,12 +475,12 @@ class BlhostBase(object):
 
     def _read_memory(self, start_address: int, byte_count: int) -> None:
         self._command_packet(
-            self.CommandTags.ReadMemory, 0x00, *[x for x in struct.Struct("<LL").pack(start_address, byte_count)]
+            self.CommandTags.ReadMemory, 0x00, *list(struct.Struct("<LL").pack(start_address, byte_count))
         )
 
     def _write_memory(self, start_address: int, data: bytes) -> None:
         self._command_packet(
-            self.CommandTags.WriteMemory, 0x00, *[x for x in struct.Struct("<LL").pack(start_address, len(data))]
+            self.CommandTags.WriteMemory, 0x00, *list(struct.Struct("<LL").pack(start_address, len(data)))
         )
 
     def _reliable_update(self, address: int = 0) -> None:
@@ -481,12 +488,12 @@ class BlhostBase(object):
         Can be used to make the target perform "reliable update operation".
         Note it will also do this during reset
         """
-        self._command_packet(self.CommandTags.ReliableUpdate, 0x00, *[x for x in struct.Struct("<L").pack(address)])
+        self._command_packet(self.CommandTags.ReliableUpdate, 0x00, *list(struct.Struct("<L").pack(address)))
 
     # This will be called by the listener i.e. in a different thread!
     def _data_callback(self, data: bytearray) -> None:
         if data[0] != self.FramingPacketConstants.StartByte:
-            self.logger.error("BlhostBase: Invalid start byte: {}".format(data))
+            self.logger.error(f"BlhostBase: Invalid start byte: {data}")
             return
 
         # We never parse the CRC16, as that has already been done when parsing the data
@@ -508,7 +515,7 @@ class BlhostBase(object):
             self._ack()
 
             # length, crc16 = struct.Struct('<HH').unpack(data[2:6])
-            tag, flags, _, parameter_count = struct.Struct("<BBBB").unpack(data[6:10])  # Parse the header
+            tag, _flags, _, parameter_count = struct.Struct("<BBBB").unpack(data[6:10])  # Parse the header
 
             # Parse the status code and convert the status code into a user friendly name if possible
             status_code = struct.Struct("<L").unpack(data[10:14])[0]
@@ -526,81 +533,73 @@ class BlhostBase(object):
                 # to print KBOOT getProperty responses
                 self.logger.log(
                     level,
-                    "BlhostBase: ResponseTags.GenericResponse: status: {}, parameter: {}".format(
-                        status_name, command_tag
-                    ),
+                    f"BlhostBase: ResponseTags.GenericResponse: status: {status_name}, parameter: {command_tag}",
                 )
 
                 # Check which command tag the response was for
                 if command_tag == self.CommandTags.Reset:
-                    self.logger.log(level, "BlhostBase: CommandTag.Reset status: {}".format(status_name))
+                    self.logger.log(level, f"BlhostBase: CommandTag.Reset status: {status_name}")
                     if status_code == self.StatusCodes.Success:
                         self._reset_response_event.set()
                 elif command_tag == self.CommandTags.FlashEraseRegion:
-                    self.logger.log(level, "BlhostBase: CommandTag.FlashEraseRegion status: {}".format(status_name))
+                    self.logger.log(level, f"BlhostBase: CommandTag.FlashEraseRegion status: {status_name}")
                     if status_code == self.StatusCodes.Success:
                         self._flash_erase_region_response_event.set()
                 elif command_tag == self.CommandTags.ReadMemory:
-                    self.logger.log(level, "BlhostBase: CommandTag.ReadMemory status: {}".format(status_name))
+                    self.logger.log(level, f"BlhostBase: CommandTag.ReadMemory status: {status_name}")
                     if status_code == self.StatusCodes.Success:
                         self._read_memory_response_tag_event.set()
                 elif command_tag == self.CommandTags.WriteMemory:
-                    self.logger.log(level, "BlhostBase: CommandTag.WriteMemory status: {}".format(status_name))
+                    self.logger.log(level, f"BlhostBase: CommandTag.WriteMemory status: {status_name}")
                     if status_code == self.StatusCodes.Success:
                         self._write_memory_response_event.set()
                 elif command_tag == self.CommandTags.ReliableUpdate:
                     if status_code == self.StatusCodes.ReliableUpdateSuccess:
                         level = logging.INFO  # Change the logging level, as this is also a successfully message
-                    self.logger.log(level, "BlhostBase: CommandTag.ReliableUpdate status: {}".format(status_name))
+                    self.logger.log(level, f"BlhostBase: CommandTag.ReliableUpdate status: {status_name}")
                 else:
                     self.logger.log(
                         level,
-                        "BlhostBase: ResponseTags.GenericResponse: status: {}, command tag: {:02X}".format(
-                            status_name, command_tag
-                        ),
+                        f"BlhostBase: ResponseTags.GenericResponse: status: {status_name}, "
+                        f"command tag: {command_tag:02X}",
                     )
             elif tag == self.ResponseTags.ReadMemoryResponse:
                 data_byte_count = struct.Struct("<L".format()).unpack(data[14:])[0]
                 self.logger.log(
                     level,
-                    "BlhostBase: ResponseTags.ReadMemoryResponse: status: {}, data byte count: {}".format(
-                        status_name, data_byte_count
-                    ),
+                    f"BlhostBase: ResponseTags.ReadMemoryResponse: status: {status_name}, "
+                    f"data byte count: {data_byte_count}",
                 )
                 if status_code == self.StatusCodes.Success:
                     self._read_memory_response_event.set()
             elif tag == self.ResponseTags.GetPropertyResponse:
                 # Make sure the response actually contain any property values
                 if parameter_count == 1:
-                    self.logger.log(
-                        level, "BlhostBase: ResponseTags.GetPropertyResponse: status: {}".format(status_name)
-                    )
+                    self.logger.log(level, f"BlhostBase: ResponseTags.GetPropertyResponse: status: {status_name}")
                 else:
                     # Unpack the property values and log them
-                    property_values = struct.Struct("<{}L".format(parameter_count - 1)).unpack(data[14:])
-                    if len(property_values) == 1:
-                        if (
-                            self.StatusCodes.AppCrcCheckPassed
-                            <= property_values[0]
-                            <= self.StatusCodes.AppCrcCheckOutOfRange
-                            or self.StatusCodes.ReliableUpdateSuccess
-                            <= property_values[0]
-                            <= self.StatusCodes.ReliableUpdateSwapIndicatorAddressInvalid
-                        ):
-                            try:
-                                property_values = self.StatusCodes(property_values[0]).name  # type: ignore
-                            except ValueError:
-                                property_values = property_values[0]
+                    property_values = struct.Struct(f"<{parameter_count - 1}L").unpack(data[14:])
+                    if len(property_values) == 1 and (
+                        self.StatusCodes.AppCrcCheckPassed
+                        <= property_values[0]
+                        <= self.StatusCodes.AppCrcCheckOutOfRange
+                        or self.StatusCodes.ReliableUpdateSuccess
+                        <= property_values[0]
+                        <= self.StatusCodes.ReliableUpdateSwapIndicatorAddressInvalid
+                    ):
+                        try:
+                            property_values = self.StatusCodes(property_values[0]).name  # type: ignore[assignment]
+                        except ValueError:
+                            property_values = property_values[0]
                     self.logger.log(
                         level,
-                        "BlhostBase: ResponseTags.GetPropertyResponse: status: {}, property value: {}".format(
-                            status_name, property_values
-                        ),
+                        f"BlhostBase: ResponseTags.GetPropertyResponse: status: {status_name}, "
+                        f"property value: {property_values}",
                     )
             # elif tag == self.ResponseTags.FlashReadOnceResponse:
             #     pass
             else:
-                self.logger.error("BlhostBase: Unhandled command tag: {}".format(tag))
+                self.logger.error(f"BlhostBase: Unhandled command tag: {tag}")
             self._get_command_response_event.set()
         elif data[1] == self.FramingPacketConstants.Type_Data:
             # Acknowledge that we received the response
@@ -608,7 +607,7 @@ class BlhostBase(object):
 
             # Store the incoming data. There is no reason to check the CRC, as it has already been checked in the parser
             length = struct.Struct("<H").unpack(data[2:4])[0]
-            self._memory_data += bytes(struct.Struct("<{}B".format(length)).unpack(data[6:]))
+            self._memory_data += bytes(struct.Struct(f"<{length}B").unpack(data[6:]))
 
             # Indicate that we have read the data
             self._data_event.set()
@@ -618,22 +617,22 @@ class BlhostBase(object):
             protocol_bugfix, protocol_minor, protocol_major, protocol_name, options = struct.Struct("<BBBBH").unpack(
                 data[2:8]
             )
-            protocol_version = "{}{}.{}.{}".format(chr(protocol_name), protocol_major, protocol_minor, protocol_bugfix)
-            self.logger.info("BlhostBase: Ping response: version: {}, options: {}".format(protocol_version, options))
+            protocol_version = f"{chr(protocol_name)}{protocol_major}.{protocol_minor}.{protocol_bugfix}"
+            self.logger.info(f"BlhostBase: Ping response: version: {protocol_version}, options: {options}")
             if protocol_version not in ["P1.2.0", "P1.3.0"]:
-                self.logger.error("BlhostBase: Unsupported protocol version: {}".format(protocol_version))
+                self.logger.error(f"BlhostBase: Unsupported protocol version: {protocol_version}")
         else:
-            self.logger.info("BlhostBase: Unhandled command type: {}".format(data[1]))
+            self.logger.info(f"BlhostBase: Unhandled command type: {data[1]}")
 
 
-class BlhostDataParser(object):
+class BlhostDataParser:
     def __init__(self, logger: logging.Logger) -> None:
         self._logger = logger
         self._data = bytearray()
-        self._data_len = None  # type: Optional[int]
-        self._data_crc = None  # type: Optional[int]
+        self._data_len: int | None = None
+        self._data_crc: int | None = None
 
-    def parse(self, data: bytearray) -> Optional[bytearray]:
+    def parse(self, data: bytearray) -> bytearray | None:
         """Parse the data sent from the target.
         :param data: Data received from the target.
         :return: Returns the parsed data when the messages has been parsed.
@@ -643,7 +642,7 @@ class BlhostDataParser(object):
 
         # The packet type will always start with the start byte
         while len(self._data) > 0 and self._data[0] != BlhostBase.FramingPacketConstants.StartByte:
-            self._logger.warning("BootloaderDataParser: Discarding invalid data: {}".format(self._data[0]))
+            self._logger.warning(f"BootloaderDataParser: Discarding invalid data: {self._data[0]}")
             self._data = self._data[1:]  # Discard the fist byte
 
         if len(self._data) < 2:
@@ -683,7 +682,7 @@ class BlhostDataParser(object):
             if len(self._data) >= 6 and self._data_crc is None:
                 self._data_crc = self._data[4] | self._data[5] << 8
         else:
-            self._logger.error("BootloaderDataParser: Unknown command type: {}".format(self._data[1]))
+            self._logger.error(f"BootloaderDataParser: Unknown command type: {self._data[1]}")
             self._data = self._data[2:]  # Discard the fist two bytes
             return None
 
@@ -696,9 +695,7 @@ class BlhostDataParser(object):
                 crc = BlhostBase.crc16_xmodem(self._data[6 : self._data_len], crc)
             match = crc == self._data_crc
             if not match:
-                self._logger.error(
-                    "BootloaderDataParser: CRC did not match: {:04X} != {:04X}".format(crc, self._data_crc)
-                )
+                self._logger.error(f"BootloaderDataParser: CRC did not match: {crc:04X} != {self._data_crc:04X}")
 
             # Return the parsed message if the CRC matched; if not it will be discarded
             message, self._data = self._data[: self._data_len], self._data[self._data_len :]
@@ -755,11 +752,11 @@ class BlhostCan(BlhostBase):
         interface: str = "socketcan",
         channel: str = "can0",
         bitrate: int = 500000,
-        can_bus: Optional[can.BusABC] = None,
-        time_to_sleep_between_messages: Optional[int] = None,
+        can_bus: can.BusABC | None = None,
+        time_to_sleep_between_messages: int | None = None,
         extended_id: bool = False,
     ) -> None:
-        super(BlhostCan, self).__init__(logger)
+        super().__init__(logger)
 
         # CAN-Bus IDs used for two-way communication with the target
         self._tx_id = tx_id
@@ -781,7 +778,7 @@ class BlhostCan(BlhostBase):
                 }
             ]
             self._can_bus = can.Bus(interface=interface, channel=channel, can_filters=can_filters, bitrate=bitrate)
-            self.logger.info('BlhostCan: CAN-Bus was opened. Channel info: "{}"'.format(self._can_bus.channel_info))
+            self.logger.info(f'BlhostCan: CAN-Bus was opened. Channel info: "{self._can_bus.channel_info}"')
 
             # We will handle shutting down the CAN-Bus
             self._can_bus_shutdown = True
@@ -796,10 +793,10 @@ class BlhostCan(BlhostBase):
             self._can_bus, [BlhostCanListener(self._tx_id, self._extended_id, self.logger, self._data_callback)]
         )
 
-    def __enter__(self) -> "BlhostCan":
+    def __enter__(self) -> Self:
         return self
 
-    def _send_implementation(self, data: List[Any]) -> None:
+    def _send_implementation(self, data: list[int]) -> None:
         # Send out the message in chunks of 8 bytes on the CAN-Bus
         for d in BlhostBase.chunks(data, 8):
             msg = can.Message(arbitration_id=self._rx_id, data=d, is_extended_id=self._extended_id)
@@ -815,7 +812,7 @@ class BlhostCan(BlhostBase):
 
 class BlhostSerial(BlhostBase):
     def __init__(self, port: str, baudrate: int, logger: logging.Logger) -> None:
-        super(BlhostSerial, self).__init__(logger)
+        super().__init__(logger)
 
         # Open the serial port, but read from it in a thread, so we are not blocking the main loop
         self._serial = serial.Serial(port=port, baudrate=baudrate, timeout=0.5)
@@ -828,11 +825,11 @@ class BlhostSerial(BlhostBase):
         self._thread.daemon = False  # Make sure the application joins this before closing down
         self._thread.start()
 
-    def __enter__(self) -> "BlhostSerial":
+    def __enter__(self) -> Self:
         return self
 
-    def _send_implementation(self, data: List[Any]) -> None:
-        self._serial.write(data)
+    def _send_implementation(self, data: list[int]) -> None:
+        self._serial.write(bytes(data))
 
     def shutdown(self, timeout: float = 1.0) -> None:
         self._shutdown_thread.set()
@@ -898,7 +895,7 @@ def cli() -> None:
         "--version",
         action="version",
         help="Show program's version number and exit",
-        version="%(prog)s {}".format(__version__),
+        version=f"%(prog)s {__version__}",
     )
     optional.add_argument("-B", "--binary", help="The binary to upload or write memory into")
     optional.add_argument("-s", "--start-address", help="The address to upload the binary at or read memory from")
@@ -930,19 +927,22 @@ def cli() -> None:
     if parsed_args.hw_interface == "can":
         if parsed_args.tx_id is None or parsed_args.rx_id is None:
             parser.print_help()
-            exit(1)
-        BlHostImpl: Type[BlhostBase] = BlhostCan
-        args, kwargs = [int(parsed_args.tx_id, base=0), int(parsed_args.rx_id, base=0)], {
-            "interface": parsed_args.interface,
-            "channel": parsed_args.channel,
-            "bitrate": parsed_args.baudrate,
-            "extended_id": bool(parsed_args.extended_id),
-        }
+            sys.exit(1)
+        BlHostImpl: type[BlhostBase] = BlhostCan  # noqa: N806
+        args, kwargs = (
+            [int(parsed_args.tx_id, base=0), int(parsed_args.rx_id, base=0)],
+            {
+                "interface": parsed_args.interface,
+                "channel": parsed_args.channel,
+                "bitrate": parsed_args.baudrate,
+                "extended_id": bool(parsed_args.extended_id),
+            },
+        )
     else:
         if parsed_args.port is None or parsed_args.baudrate is None:
             parser.print_help()
-            exit(1)
-        BlHostImpl = BlhostSerial
+            sys.exit(1)
+        BlHostImpl = BlhostSerial  # noqa: N806
         args, kwargs = [parsed_args.port, parsed_args.baudrate], {}
 
     # Print all log output directly in the terminal
@@ -960,7 +960,7 @@ def cli() -> None:
         if parsed_args.command == "upload":
             if parsed_args.binary is None or parsed_args.start_address is None or parsed_args.byte_count is None:
                 parser.print_help()
-                exit(1)
+                sys.exit(1)
             pbar = None
             result = False
             for upload_progress in blhost.upload(
@@ -991,14 +991,14 @@ def cli() -> None:
                 pbar.close()  # Make sure it is closed
             if result is True:
                 blhost.logger.info("Uploading succeeded")
-                exit(0)
+                sys.exit(0)
             else:
                 blhost.logger.error("Uploading failed")
-                exit(1)
+                sys.exit(1)
         elif parsed_args.command == "read":
             if parsed_args.binary is None or parsed_args.start_address is None or parsed_args.byte_count is None:
                 parser.print_help()
-                exit(1)
+                sys.exit(1)
             pbar = None
             data = None
             for read_progress in blhost.read(
@@ -1026,31 +1026,31 @@ def cli() -> None:
                 pbar.close()  # Make sure it is closed
             if data is None:
                 blhost.logger.error("Reading memory failed")
-                exit(1)
+                sys.exit(1)
             with open(parsed_args.binary, "wb") as f:
                 f.write(data)
             blhost.logger.info("Reading memory succeeded")
-            exit(0)
+            sys.exit(0)
         elif parsed_args.command == "ping":
             for i in range(parsed_args.cmd_repeat):
                 if blhost.ping(timeout=parsed_args.timeout):
-                    blhost.logger.info("Ping responded in {} attempt(s)".format(i + 1))
-                    exit(0)
+                    blhost.logger.info(f"Ping responded in {i + 1} attempt(s)")
+                    sys.exit(0)
 
             blhost.logger.error("Timed out waiting for ping response")
-            exit(1)
+            sys.exit(1)
         elif parsed_args.command == "get_property":
             if not blhost.get_property(parsed_args.prop, timeout=parsed_args.timeout):
                 blhost.logger.error("Timed out waiting for property")
-                exit(1)
+                sys.exit(1)
         else:
             for i in range(parsed_args.cmd_repeat):
                 if blhost.reset(timeout=parsed_args.timeout):
-                    blhost.logger.info("Reset responded in {} attempt(s)".format(i + 1))
-                    exit(0)
+                    blhost.logger.info(f"Reset responded in {i + 1} attempt(s)")
+                    sys.exit(0)
 
             blhost.logger.error("Timed out waiting for reset response")
-            exit(1)
+            sys.exit(1)
 
 
 if __name__ == "__main__":

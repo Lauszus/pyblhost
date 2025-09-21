@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader.
-# Copyright (C) 2020-2021  Kristian Sloth Lauszus.
+# Copyright (C) 2020-2025  Kristian Sloth Lauszus.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,10 @@
 # Web      :  https://www.lauszus.com
 # e-mail   :  lauszus@gmail.com
 
+from __future__ import annotations
+
 import logging
+import sys
 
 from pyblhost import BlhostCan
 
@@ -51,16 +54,16 @@ def main() -> None:
                 progress = round(progress)
                 if progress != old_progress:
                     old_progress = progress
-                    logger.info("Upload progress: {} %".format(progress))
+                    logger.info(f"Upload progress: {progress} %")
             else:
                 # The result will be returned as a boolean
                 result = progress
         if result is True:
             logger.info("Uploading succeeded")
-            exit(0)
+            sys.exit(0)
         else:
             logger.error("Uploading failed")
-            exit(1)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
