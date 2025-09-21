@@ -101,14 +101,39 @@ class TestBlhostBase:
         assert len(blhost._memory_data) == 0
 
     def test_abstract_methods_raise_not_implemented(self) -> None:
-        """Test that abstract methods raise NotImplementedError."""
-        blhost = BlhostBase(self.logger)
+        """Test that abstract methods."""
 
-        with pytest.raises(NotImplementedError):
-            blhost._send_implementation([])
+        class BlhostChildMissingSend(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
 
-        with pytest.raises(NotImplementedError):
-            blhost.shutdown()
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        class BlhostChildMissingShutdown(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+        class BlhostChild(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        with pytest.raises(TypeError):
+            BlhostChildMissingSend(self.logger)  # type: ignore[abstract]
+
+        with pytest.raises(TypeError):
+            BlhostChildMissingShutdown(self.logger)  # type: ignore[abstract]
+
+        BlhostChild(self.logger)
 
     def test_send_with_lock(self) -> None:
         """Test that _send method uses lock and stores last packet."""

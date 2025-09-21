@@ -30,6 +30,7 @@ import struct
 import sys
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Generator, Sequence
 from enum import IntEnum
 from types import TracebackType
@@ -43,7 +44,7 @@ from typing_extensions import Self
 from . import __version__
 
 
-class BlhostBase:
+class BlhostBase(ABC):
     """
     Implemented based on "Kinetis Bootloader v2.0.0 Reference Manual.pdf" and
     existing blhost application: https://github.com/Lauszus/blhost
@@ -190,8 +191,9 @@ class BlhostBase:
         # Used to store memory data when reading
         self._memory_data = bytearray()
 
+    @abstractmethod
     def _send_implementation(self, data: list[int]) -> None:
-        raise NotImplementedError
+        pass
 
     def _send(self, data: list[int]) -> None:
         with self._send_lock:
@@ -222,8 +224,9 @@ class BlhostBase:
         self._get_property(property_tag, memory_id)
         return self._get_command_response_event.wait(timeout)
 
+    @abstractmethod
     def shutdown(self, timeout: float = 1.0) -> None:
-        raise NotImplementedError
+        pass
 
     def __enter__(self) -> Self:
         return self
