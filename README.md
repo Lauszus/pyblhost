@@ -6,6 +6,7 @@ The code is released under the GNU General Public License v3.0.
 _________
 [![PyPI](https://img.shields.io/pypi/v/pyblhost.svg)](https://pypi.org/project/pyblhost)
 [![pyblhost CI](https://github.com/Lauszus/pyblhost/actions/workflows/build.yml/badge.svg)](https://github.com/Lauszus/pyblhost/actions/workflows/build.yml)
+[![Coverage badge](https://raw.githubusercontent.com/Lauszus/pyblhost/python-coverage-comment-action-data/badge.svg)](https://htmlpreview.github.io/?https://github.com/Lauszus/pyblhost/blob/python-coverage-comment-action-data/htmlcov/index.html)
 
 This is a Python implementation of [blhost](https://github.com/Lauszus/blhost) used to communicate with the [NXP MCUBOOT/KBOOT bootloader](https://www.nxp.com/design/software/development-software/mcuxpresso-software-and-tools-/mcuboot-mcu-bootloader-for-nxp-microcontrollers:MCUBOOT).
 
