@@ -974,6 +974,8 @@ def cli() -> None:
                     "The following arguments are required for upload: --binary/-B, --start-address/-s, --byte-count/-c"
                 )
 
+            # Show info message in light green to match logging formatter
+            info = EscapeCodes.color_text("INFO", EscapeCodes.LIGHT_GREEN)
             pbar = None
             result = False
             for upload_progress in blhost.upload(
@@ -986,8 +988,6 @@ def cli() -> None:
                 assume_success=parsed_args.assume_success,
             ):
                 if not isinstance(upload_progress, bool):
-                    # Show info message in light green to match logging formatter
-                    info = EscapeCodes.color_text("INFO", EscapeCodes.LIGHT_GREEN)
                     if pbar is None:
                         # Create it here, so the progress is not printed before we actually start uploading
                         pbar = tqdm(
@@ -1016,6 +1016,8 @@ def cli() -> None:
                     "The following arguments are required for read: --binary/-B, --start-address/-s, --byte-count/-c"
                 )
 
+            # Show info message in light green to match logging formatter
+            info = EscapeCodes.color_text("INFO", EscapeCodes.LIGHT_GREEN)
             pbar = None
             data = None
             for read_progress in blhost.read(
@@ -1028,7 +1030,7 @@ def cli() -> None:
                     if pbar is None:
                         # Create it here, so the progress is not printed before we actually start uploading
                         pbar = tqdm(
-                            desc="[INFO] Read memory",
+                            desc=f"[{info}] Read memory",
                             total=100,
                             bar_format="{l_bar}{bar}| [{elapsed}]",
                             dynamic_ncols=True,
