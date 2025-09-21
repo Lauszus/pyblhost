@@ -35,7 +35,7 @@ def main() -> None:
     port, baudrate = "/dev/ttyUSB0", 500000
 
     # Create a logger
-    logger = logging.getLogger()
+    logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
