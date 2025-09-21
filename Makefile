@@ -44,7 +44,7 @@ uv: $(UV)
 
 # Target for building a virtual environment.
 $(VENV)/.venv_done_$(PYTHON_VERSION): $(UV)
-	@uv sync --frozen --python $(PYTHON_VERSION) --python-preference only-managed
+	uv sync --frozen --python $(PYTHON_VERSION) --python-preference only-managed
 	@touch $(@)
 
 # Make sure the venv is rebuild when we modify uv.lock.
@@ -57,7 +57,7 @@ venv: $(VENV)/.venv_done_$(PYTHON_VERSION)
 # Note that we use the "--refresh" flag, as the package sources might change.
 # Without this uv would just use the cached packages.
 uv.lock: pyproject.toml
-	@uv lock --refresh --python $(PYTHON_VERSION) --python-preference only-managed
+	uv lock --refresh --python $(PYTHON_VERSION) --python-preference only-managed
 	@# uv does not touch the file if it is the same, so do it manually
 	@touch $(@)
 lock: uv.lock
@@ -86,7 +86,7 @@ rwildcard=$(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(su
 # Build distribution.
 dist/.build_done: $(UV) uv.lock $(call rwildcard,src/,*.py)
 	uv build --python $(PYTHON_VERSION) --python-preference only-managed --no-sources
-	touch $(@)
+	@touch $(@)
 build: dist/.build_done
 
 mypy: venv
