@@ -541,6 +541,12 @@ class BlhostBase:
 
             if tag == self.ResponseTags.GenericResponse:
                 command_tag = struct.Struct("<L").unpack(data[14:])[0]
+                if (
+                    command_tag == self.CommandTags.ReliableUpdate
+                    and status_code == self.StatusCodes.ReliableUpdateSuccess
+                ):
+                    level = logging.INFO  # Change the logging level, as this is also a successful message
+
                 # log the parameter value in a generic way
                 # to print KBOOT getProperty responses
                 self.logger.log(
@@ -566,8 +572,6 @@ class BlhostBase:
                     if status_code == self.StatusCodes.Success:
                         self._write_memory_response_event.set()
                 elif command_tag == self.CommandTags.ReliableUpdate:
-                    if status_code == self.StatusCodes.ReliableUpdateSuccess:
-                        level = logging.INFO  # Change the logging level, as this is also a successfully message
                     self.logger.log(level, f"BlhostBase: CommandTag.ReliableUpdate status: {status_name}")
                 else:
                     self.logger.log(
@@ -765,7 +769,7 @@ class BlhostCan(BlhostBase):
         channel: str = "can0",
         bitrate: int = 500000,
         can_bus: can.BusABC | None = None,
-        time_to_sleep_between_messages: int | None = None,
+        time_to_sleep_between_messages: float | None = None,
         extended_id: bool = False,
     ) -> None:
         super().__init__(logger)

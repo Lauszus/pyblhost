@@ -1,6 +1,13 @@
 name: pyblhost CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+    tags:
+      - '*'
+  pull_request:
 
 jobs:
   dist:
@@ -12,6 +19,8 @@ jobs:
 
     - name: Setup uv
       uses: astral-sh/setup-uv@v6
+      with:
+        cache-suffix: dist
 
     - name: Build dist
       run: make build
@@ -28,14 +37,45 @@ jobs:
     name: Checks
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      # Gives the action the necessary permissions for publishing new
+      # comments in pull requests.
+      pull-requests: write
+      # Gives the action the necessary permissions for pushing data to the
+      # python-coverage-comment-action branch, and for editing existing
+      # comments (to avoid publishing multiple comments in the same PR)
+      contents: write
     steps:
     - uses: actions/checkout@v5
+      with:
+        # Needed for coverage
+        fetch-depth: 1000
 
     - name: Setup uv
       uses: astral-sh/setup-uv@v6
+      with:
+        cache-suffix: checks
 
     - name: Check code with ruff and mypy
       run: make -j static-checks
+
+    - name: Run tests
+      run: make test
+
+    - name: Coverage comment
+      id: coverage_comment
+      uses: py-cov-action/python-coverage-comment-action@v3
+      with:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Store Pull Request comment to be posted
+      uses: actions/upload-artifact@v4
+      if: steps.coverage_comment.outputs.COMMENT_FILE_WRITTEN == 'true'
+      with:
+        # If you use a different name, update COMMENT_ARTIFACT_NAME accordingly
+        name: python-coverage-comment-action
+        # If you use a different name, update COMMENT_FILENAME accordingly
+        path: python-coverage-comment-action.txt
 
   release:
     needs: [dist, checks]
@@ -45,6 +85,8 @@ jobs:
     steps:
     - name: Setup uv
       uses: astral-sh/setup-uv@v6
+      with:
+        cache-suffix: release
 
     - uses: actions/download-artifact@v5
       with:
