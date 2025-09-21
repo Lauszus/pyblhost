@@ -1,0 +1,7 @@
+#!/bin/bash -e
+# -e = errexit - will exit after first command with non-zero return code
+
+# Install the pre-push hook in a top-level repo by making a symbolic link:
+#   ln -sf ../../scripts/pre-push .git/hooks/pre-push
+
+make -j static-checks
