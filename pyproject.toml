@@ -1,6 +1,6 @@
 [project]
 name = "pyblhost"
-version = "1.6.0"
+version = "1.7.0"
 description = "Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader"
 readme = "README.md"
 license = {file = "LICENSE"}
