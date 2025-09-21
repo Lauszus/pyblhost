@@ -809,9 +809,6 @@ class BlhostCan(BlhostBase):
             self._can_bus, [BlhostCanListener(self._tx_id, self._extended_id, self.logger, self._data_callback)]
         )
 
-    def __enter__(self) -> Self:
-        return self
-
     def _send_implementation(self, data: list[int]) -> None:
         # Send out the message in chunks of 8 bytes on the CAN-Bus
         for d in BlhostBase.chunks(data, 8):
@@ -840,9 +837,6 @@ class BlhostSerial(BlhostBase):
         )
         self._thread.daemon = False  # Make sure the application joins this before closing down
         self._thread.start()
-
-    def __enter__(self) -> Self:
-        return self
 
     def _send_implementation(self, data: list[int]) -> None:
         self._serial.write(bytes(data))
