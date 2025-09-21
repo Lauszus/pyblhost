@@ -126,7 +126,7 @@ PYTEST_ARGS ?=
 test: venv
 	uv run --isolated pytest $(XDIST_ARGS) $(COV_ARGS) -vv tests/ $(PYTEST_ARGS)
 
-# Targets for pyblhost
+# Targets for pyblhost.
 .PHONY: uv venv lock lock-upgrade clean build mypy ruff-format-check ruff-format-fix ruff-lint-check ruff-lint-fix ruff-lint-fix-unsafe ruff-check ruff-fix ruff-fix-unsafe test help
 
 # Create a help message.

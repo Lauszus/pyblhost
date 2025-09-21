@@ -28,6 +28,8 @@ See the [examples](examples) directory for Python examples.
 
 ### CLI
 
+A handy CLI tool is included.
+
 I recommend using [uvx](https://github.com/astral-sh/uv) to run the CLI tool:
 
 ```bash

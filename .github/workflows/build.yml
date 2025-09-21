@@ -10,29 +10,6 @@ on:
   pull_request:
 
 jobs:
-  dist:
-    name: Build dist
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-    - uses: actions/checkout@v5
-
-    - name: Setup uv
-      uses: astral-sh/setup-uv@v6
-      with:
-        cache-suffix: dist
-
-    - name: Build dist
-      run: make build
-
-    - name: Upload dist as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: dist-${{ github.sha }}
-        path: dist
-        retention-days: 1
-        if-no-files-found: error
-
   checks:
     name: Checks
     runs-on: ubuntu-24.04
@@ -46,74 +23,97 @@ jobs:
       # comments (to avoid publishing multiple comments in the same PR)
       contents: write
     steps:
-    - uses: actions/checkout@v5
-      with:
-        # Needed for coverage
-        fetch-depth: 1000
+      - uses: actions/checkout@v5
+        with:
+          # Needed for coverage
+          fetch-depth: 1000
 
-    - name: Setup uv
-      uses: astral-sh/setup-uv@v6
-      with:
-        cache-suffix: checks
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          cache-suffix: checks
 
-    - name: Check code with ruff and mypy
-      run: make -j static-checks
+      - name: Check code with ruff and mypy
+        run: make -j static-checks
 
-    - name: Run tests
-      run: make test
+      - name: Run tests
+        run: make test
 
-    - name: Coverage comment
-      id: coverage_comment
-      uses: py-cov-action/python-coverage-comment-action@v3
-      with:
-        GITHUB_TOKEN: ${{ github.token }}
+      - name: Coverage comment
+        id: coverage_comment
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
 
-    - name: Store Pull Request comment to be posted
-      uses: actions/upload-artifact@v4
-      if: steps.coverage_comment.outputs.COMMENT_FILE_WRITTEN == 'true'
-      with:
-        # If you use a different name, update COMMENT_ARTIFACT_NAME accordingly
-        name: python-coverage-comment-action
-        # If you use a different name, update COMMENT_FILENAME accordingly
-        path: python-coverage-comment-action.txt
+      - name: Store Pull Request comment to be posted
+        uses: actions/upload-artifact@v4
+        if: steps.coverage_comment.outputs.COMMENT_FILE_WRITTEN == 'true'
+        with:
+          # If you use a different name, update COMMENT_ARTIFACT_NAME accordingly
+          name: python-coverage-comment-action
+          # If you use a different name, update COMMENT_FILENAME accordingly
+          path: python-coverage-comment-action.txt
+
+  dist:
+    name: Build dist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          cache-suffix: dist
+
+      - name: Build dist
+        run: make build
+
+      - name: Upload dist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist
+          retention-days: 1
+          if-no-files-found: error
 
   release:
-    needs: [dist, checks]
+    needs: [checks, dist]
     name: Release
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-    - name: Setup uv
-      uses: astral-sh/setup-uv@v6
-      with:
-        cache-suffix: release
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          cache-suffix: release
 
-    - uses: actions/download-artifact@v5
-      with:
-        path: dist
-        name: dist-${{ github.sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          name: dist-${{ github.sha }}
 
-    - name: Check dist
-      id: twine
-      run: uvx twine check dist/*
+      - name: Check dist
+        id: twine
+        run: uvx twine check dist/*
 
-    - name: Publish to PyPI
-      id: pypi
-      if: ${{ ! cancelled() && steps.twine.conclusion == 'success' && startsWith(github.ref, 'refs/tags/') }}
-      run: |
-        uvx twine upload -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} dist/*
+      - name: Publish to PyPI
+        id: pypi
+        if: ${{ ! cancelled() && steps.twine.conclusion == 'success' && startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          uvx twine upload -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} dist/*
 
-    - name: Calculate checksums
-      run: |
-        pushd dist
-          sha256sum * > SHA256SUMS
-        popd
-        cat dist/SHA256SUMS
+      - name: Calculate checksums
+        run: |
+          pushd dist
+            sha256sum * > SHA256SUMS
+          popd
+          cat dist/SHA256SUMS
 
-    - name: Publish to Github Release
-      if: ${{ ! cancelled() && steps.pypi.conclusion == 'success' }}
-      uses: softprops/action-gh-release@v2
-      with:
-        files: dist/*
-        draft: true
-        fail_on_unmatched_files: true
+      - name: Publish to Github Release
+        if: ${{ ! cancelled() && steps.pypi.conclusion == 'success' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          draft: true
+          fail_on_unmatched_files: true

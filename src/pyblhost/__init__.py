@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
-__all__ = ["BlhostCan", "BlhostSerial"]
+__all__ = ["BlhostCan", "BlhostSerial", "__version__"]
 
 __version__ = version("pyblhost")
 
