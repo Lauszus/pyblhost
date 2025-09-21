@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader.
-# Copyright (C) 2020-2021  Kristian Sloth Lauszus.
+# Copyright (C) 2020-2025  Kristian Sloth Lauszus.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,10 @@
 # Web      :  https://www.lauszus.com
 # e-mail   :  lauszus@gmail.com
 
+from __future__ import annotations
+
 import logging
+import sys
 
 from pyblhost import BlhostSerial
 
@@ -41,11 +44,11 @@ def main() -> None:
     with BlhostSerial(port, baudrate, logger) as blhost:
         for i in range(3):  # Try 3 times
             if blhost.reset(timeout=1):  # Wait 1 second for a response
-                logger.info("Ping responded in {} attempt(s)".format(i + 1))
-                exit(0)
+                logger.info(f"Ping responded in {i + 1} attempt(s)")
+                sys.exit(0)
 
         logger.error("Timed out waiting for ping response")
-        exit(1)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

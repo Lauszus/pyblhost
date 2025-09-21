@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #
 # Python implementation of blhost used to communicate with the NXP MCUBOOT/KBOOT bootloader.
-# Copyright (C) 2020-2021  Kristian Sloth Lauszus.
+# Copyright (C) 2020-2025  Kristian Sloth Lauszus.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,12 @@
 # Web      :  https://www.lauszus.com
 # e-mail   :  lauszus@gmail.com
 
-if __name__ == "__main__":
-    from .pyblhost import cli
+from __future__ import annotations
 
-    cli()
+from importlib.metadata import version
+
+__all__ = ["BlhostCan", "BlhostSerial"]
+
+__version__ = version("pyblhost")
+
+from .pyblhost import BlhostCan, BlhostSerial
