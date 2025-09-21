@@ -435,13 +435,11 @@ class BlhostBase(ABC):
 
     def _get_property(self, property_tag: PropertyTag, memory_id: int = 0) -> None:
         # Memory ID: 0 = Internal flash, 0x01 = QSPI0 memory
-        self._command_packet(
-            self.CommandTags.GetProperty, 0x00, *list(struct.Struct("<LL").pack(property_tag, memory_id))
-        )
+        self._command_packet(self.CommandTags.GetProperty, 0x00, *struct.Struct("<LL").pack(property_tag, memory_id))
 
     def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
         self._command_packet(
-            self.CommandTags.FlashEraseRegion, 0x00, *list(struct.Struct("<LL").pack(start_address, byte_count))
+            self.CommandTags.FlashEraseRegion, 0x00, *struct.Struct("<LL").pack(start_address, byte_count)
         )
 
     def read(
@@ -490,21 +488,17 @@ class BlhostBase(ABC):
         yield self._memory_data
 
     def _read_memory(self, start_address: int, byte_count: int) -> None:
-        self._command_packet(
-            self.CommandTags.ReadMemory, 0x00, *list(struct.Struct("<LL").pack(start_address, byte_count))
-        )
+        self._command_packet(self.CommandTags.ReadMemory, 0x00, *struct.Struct("<LL").pack(start_address, byte_count))
 
     def _write_memory(self, start_address: int, data: bytes) -> None:
-        self._command_packet(
-            self.CommandTags.WriteMemory, 0x00, *list(struct.Struct("<LL").pack(start_address, len(data)))
-        )
+        self._command_packet(self.CommandTags.WriteMemory, 0x00, *struct.Struct("<LL").pack(start_address, len(data)))
 
     def _reliable_update(self, address: int = 0) -> None:
         """
         Can be used to make the target perform "reliable update operation".
         Note it will also do this during reset
         """
-        self._command_packet(self.CommandTags.ReliableUpdate, 0x00, *list(struct.Struct("<L").pack(address)))
+        self._command_packet(self.CommandTags.ReliableUpdate, 0x00, *struct.Struct("<L").pack(address))
 
     # This will be called by the listener i.e. in a different thread!
     def _data_callback(self, data: bytearray) -> None:
