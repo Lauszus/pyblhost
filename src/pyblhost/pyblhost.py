@@ -33,7 +33,7 @@ import time
 from collections.abc import Generator, Sequence
 from enum import IntEnum
 from types import TracebackType
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import can
 import serial
@@ -198,10 +198,22 @@ class BlhostBase:
             self._last_send_packet = data
             self._send_implementation(data)
 
-    def get_property(self, property_tag: PropertyTag, memory_id: int = 0, timeout: float = 5.0) -> bool:
-        if not self.ping(timeout=timeout):
-            self.logger.error("BlhostBase: Target did not respond to ping")
+    def get_property(
+        self,
+        property_tag: PropertyTag,
+        memory_id: int = 0,
+        timeout: float = 5.0,
+        ping_repeat: int = 3,
+    ) -> bool:
+        # Try to ping the target 3 times to make sure we can communicate with the bootloader
+        for i in range(ping_repeat):
+            if self.ping(timeout=timeout):
+                self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
+                break
+        else:
+            self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
             return False
+
         # KBOOT responds to getProperty with a GenericResponse
         # MCUBOOT responds to getProperty with a GetPropertyResponse
         # Because Python does not have a "wait for event1 or event2" API,
@@ -311,7 +323,7 @@ class BlhostBase:
                 self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
                 break
         else:
-            self.logger.warning("BlhostBase: Target did not respond to ping")
+            self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
             return False
 
         # First erase the region of memory where application will be located
@@ -437,7 +449,7 @@ class BlhostBase:
                 self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
                 break
         else:
-            self.logger.warning("BlhostBase: Target did not respond to ping")
+            self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
             return
 
         # Clear any data that was read before
@@ -918,7 +930,7 @@ def cli() -> None:
         type=int,
         default=500000,
     )
-    optional.add_argument("--prop", "--property", help="The property tag to get (default 0)", type=int, default=0)
+    optional.add_argument("--prop", "--property", help="The property tag to get")
     optional.add_argument("--no-reset", help="Do not reset the target after upload", action="store_true")
     optional.add_argument("-v", "--verbose", help="Increase output verbosity", action="store_true")
     optional.add_argument("--assume-success", help="Assume success if uploading fails", action="store_true")
@@ -926,8 +938,8 @@ def cli() -> None:
     parsed_args = parser.parse_args()
     if parsed_args.hw_interface == "can":
         if parsed_args.tx_id is None or parsed_args.rx_id is None:
-            parser.print_help()
-            sys.exit(1)
+            parser.error("The following arguments are required for CAN: --tx-id/-tx, --rx-id/-rx")
+
         BlHostImpl: type[BlhostBase] = BlhostCan  # noqa: N806
         args, kwargs = (
             [int(parsed_args.tx_id, base=0), int(parsed_args.rx_id, base=0)],
@@ -939,9 +951,9 @@ def cli() -> None:
             },
         )
     else:
-        if parsed_args.port is None or parsed_args.baudrate is None:
-            parser.print_help()
-            sys.exit(1)
+        if parsed_args.port is None:
+            parser.error("The following arguments are required for serial: --port/-p")
+
         BlHostImpl = BlhostSerial  # noqa: N806
         args, kwargs = [parsed_args.port, parsed_args.baudrate], {}
 
@@ -959,8 +971,10 @@ def cli() -> None:
     with BlHostImpl(*args, **kwargs) as blhost:  # type: ignore[arg-type]
         if parsed_args.command == "upload":
             if parsed_args.binary is None or parsed_args.start_address is None or parsed_args.byte_count is None:
-                parser.print_help()
-                sys.exit(1)
+                parser.error(
+                    "The following arguments are required for upload: --binary/-B, --start-address/-s, --byte-count/-c"
+                )
+
             pbar = None
             result = False
             for upload_progress in blhost.upload(
@@ -997,8 +1011,10 @@ def cli() -> None:
                 sys.exit(1)
         elif parsed_args.command == "read":
             if parsed_args.binary is None or parsed_args.start_address is None or parsed_args.byte_count is None:
-                parser.print_help()
-                sys.exit(1)
+                parser.error(
+                    "The following arguments are required for read: --binary/-B, --start-address/-s, --byte-count/-c"
+                )
+
             pbar = None
             data = None
             for read_progress in blhost.read(
@@ -1040,7 +1056,21 @@ def cli() -> None:
             blhost.logger.error("Timed out waiting for ping response")
             sys.exit(1)
         elif parsed_args.command == "get_property":
-            if not blhost.get_property(parsed_args.prop, timeout=parsed_args.timeout):
+            if parsed_args.prop is None:
+                parser.error("The following arguments are required for get_property: --prop/--property")
+
+            # Use cast here in case we want to get a property that is not in the enum
+            # int(x, 0) allows for hex values as well
+            try:
+                property_tag = cast(BlhostBase.PropertyTag, int(parsed_args.prop, 0))
+            except ValueError:
+                parser.error(f"Invalid property value: '{parsed_args.prop}'. Must be an integer (decimal or hex)")
+
+            if not blhost.get_property(
+                property_tag=property_tag,
+                timeout=parsed_args.timeout,
+                ping_repeat=parsed_args.cmd_repeat,
+            ):
                 blhost.logger.error("Timed out waiting for property")
                 sys.exit(1)
         else:

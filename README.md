@@ -92,7 +92,7 @@ optional arguments:
   -b BAUDRATE, --baudrate BAUDRATE, --bitrate BAUDRATE
                         The baudrate/bitrate to use for serial/can (default 500000)
   --prop PROP, --property PROP
-                        The property tag to get (default 0)
+                        The property tag to get
   --no-reset            Do not reset the target after upload
   -v, --verbose         Increase output verbosity
   --assume-success      Assume success if uploading fails
