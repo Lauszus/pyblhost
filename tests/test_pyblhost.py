@@ -31,7 +31,7 @@ import sys
 import threading
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import Mock, mock_open, patch
+from unittest.mock import Mock, call, mock_open, patch
 
 import can
 import pytest
@@ -1302,6 +1302,63 @@ class TestBlhostBase:
 
         blhost._get_command_response_event.set.assert_called_once()
 
+    def test_data_callback_get_property_response_status_code_value_mapping(self) -> None:
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.ack_called = False
+                self._sent_data: list[int] = []
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _ack(self) -> None:
+                self.ack_called = True
+                super()._ack()
+
+            def _send(self, data: list[int]) -> None:
+                self._sent_data.extend(data)
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._get_command_response_event = Mock()
+
+        # Return a property value in AppCrcCheck range so mapping to StatusCodes occurs
+        property_value = BlhostBase.StatusCodes.AppCrcCheckPassed
+        packet = bytearray(
+            [
+                BlhostBase.FramingPacketConstants.StartByte,
+                BlhostBase.FramingPacketConstants.Type_Command,
+                0x0C,
+                0x00,  # length (status + one value)
+                0x00,
+                0x00,  # CRC placeholder
+                BlhostBase.ResponseTags.GetPropertyResponse,
+                0x00,  # flags
+                0x00,  # reserved
+                0x02,  # parameter_count == status + 1 value
+                # status Success
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                # property value (little endian)
+                property_value & 0xFF,
+                (property_value >> 8) & 0xFF,
+                (property_value >> 16) & 0xFF,
+                (property_value >> 24) & 0xFF,
+            ]
+        )
+
+        blhost._data_callback(packet)
+
+        # Expect a log containing the mapped enum name
+        mapped_name = BlhostBase.StatusCodes(property_value).name
+        assert any(mapped_name in str(call) for call in self.logger.log.call_args_list)
+        blhost._get_command_response_event.set.assert_called_once()
+
     def test_data_callback_data_packet(self) -> None:
         """Test _data_callback with data packet."""
 
@@ -1377,10 +1434,10 @@ class TestBlhostBase:
             [
                 BlhostBase.FramingPacketConstants.StartByte,
                 BlhostBase.FramingPacketConstants.Type_PingResponse,
-                0x30,  # '0' (bugfix)
-                0x32,  # '2' (minor)
-                0x31,  # '1' (major)
-                0x50,  # 'P' (name)
+                0,  # '0' (bugfix)
+                2,  # '2' (minor)
+                1,  # '1' (major)
+                ord("P"),  # 'P' (name)
                 # Options
                 0x00,
                 0x00,
@@ -1409,10 +1466,10 @@ class TestBlhostBase:
             [
                 BlhostBase.FramingPacketConstants.StartByte,  # Start byte
                 BlhostBase.FramingPacketConstants.Type_PingResponse,  # Type
-                0x30,  # '0' (bugfix)
-                0x30,  # '0' (minor)
-                0x32,  # '2' (major) - unsupported
-                0x50,  # 'P' (name)
+                0,  # '0' (bugfix)
+                0,  # '0' (minor)
+                2,  # '2' (major) - unsupported
+                ord("P"),  # 'P' (name)
                 # Options
                 0x00,
                 0x00,
@@ -1422,10 +1479,9 @@ class TestBlhostBase:
         blhost._data_callback(ping_response)
 
         blhost._ping_response_event.set.assert_called_once()
-        # The actual parsing uses chr() on the name byte and constructs the version string
-        # So P(0x50) + 2(0x32) + .(0x30) + 0(0x30) = "P2.0.0" but the bytes are parsed as integers
-        expected_version = f"P{0x32}.{0x30}.{0x30}"  # This will be "P50.48.48"
-        self.logger.error.assert_called_with(f"BlhostBase: Unsupported protocol version: {expected_version}")
+
+        # The protocol version string is now parsed into readable form e.g. P2.0.0
+        self.logger.error.assert_called_with("BlhostBase: Unsupported protocol version: P2.0.0")
 
     def test_data_callback_invalid_start_byte(self) -> None:
         """Test _data_callback with invalid start byte."""
@@ -1467,6 +1523,60 @@ class TestBlhostBase:
         blhost._data_callback(unknown_data)
 
         self.logger.info.assert_called_with("BlhostBase: Unhandled command type: 255")
+
+    def test_data_callback_generic_response_unknown_command_tag_logs(self) -> None:
+        class TestBlhost(BlhostBase):
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _ack(self) -> None:
+                pass
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._get_command_response_event = Mock()
+
+        # Create a generic response with error status
+        command_data = bytearray(
+            [
+                BlhostBase.FramingPacketConstants.StartByte,  # Start byte
+                BlhostBase.FramingPacketConstants.Type_Command,  # Type
+                # Length (8 bytes)
+                0x08,
+                0x00,
+                # CRC (not validated in callback)
+                0x00,
+                0x00,
+                BlhostBase.ResponseTags.GenericResponse,  # Tag
+                0x00,  # Flags
+                0x00,  # Reserved
+                0x01,  # Parameter count
+                # Status = Success
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                # Command tag
+                0xDE,  # Not in CommandTags enum
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
+
+        blhost._data_callback(command_data)
+
+        # Should have logged the generic response plus unknown tag variant
+        assert self.logger.log.call_count == 2
+        self.logger.log.assert_has_calls(
+            [
+                call(logging.INFO, f"BlhostBase: ResponseTags.GenericResponse: status: Success, parameter: {0xDE}"),
+                call(logging.INFO, f"BlhostBase: ResponseTags.GenericResponse: status: Success, command tag: {0xDE:X}"),
+            ]
+        )
+        blhost._get_command_response_event.set.assert_called_once()
 
     def test_data_callback_error_status_logging(self) -> None:
         """Test _data_callback logs errors with appropriate level for non-success status."""
@@ -1848,6 +1958,81 @@ class TestBlhostBase:
                 assert len(warning_calls) == 0
                 blhost._get_command_response_event.set.assert_called_once()
 
+    def test_reliable_update_command_packet(self) -> None:
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.command_packets: list[tuple[int, int, tuple[int, ...]]] = []
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _command_packet(self, tag: BlhostBase.CommandTags, flags: int, *payload: Any) -> None:
+                self.command_packets.append((tag, flags, payload))
+                super()._command_packet(tag, flags, *payload)
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._get_command_response_event = Mock()
+
+        blhost._reliable_update(0x12345678)
+
+        # Last command packet should be ReliableUpdate
+        assert blhost.command_packets[-1][0] == BlhostBase.CommandTags.ReliableUpdate
+
+    def test_data_callback_unhandled_command_tag_errors(self) -> None:
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.command_packets: list[tuple[int, int, tuple[int, ...]]] = []
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _command_packet(self, tag: BlhostBase.CommandTags, flags: int, *payload: Any) -> None:
+                self.command_packets.append((tag, flags, payload))
+                super()._command_packet(tag, flags, *payload)
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._get_command_response_event = Mock()
+
+        # Craft a command packet with an unhandled response tag (e.g., FlashReadOnceResponse)
+        packet = bytearray(
+            [
+                BlhostBase.FramingPacketConstants.StartByte,
+                BlhostBase.FramingPacketConstants.Type_Command,
+                0x08,
+                0x00,
+                0x00,
+                0x00,
+                BlhostBase.ResponseTags.FlashReadOnceResponse,  # Currently unused / unhandled branch
+                0x00,
+                0x00,
+                0x01,  # parameter count
+                # status success
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                # one dummy parameter (fits length)
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ]
+        )
+
+        blhost._data_callback(packet)
+        self.logger.error.assert_called_with(
+            f"BlhostBase: Unhandled command tag: {BlhostBase.ResponseTags.FlashReadOnceResponse}"
+        )
+        blhost._get_command_response_event.set.assert_called_once()
+
 
 class TestBlhostDataParser:
     """Test cases for BlhostDataParser class."""
@@ -1908,9 +2093,9 @@ class TestBlhostDataParser:
                 BlhostBase.FramingPacketConstants.StartByte,  # Start byte
                 BlhostBase.FramingPacketConstants.Type_PingResponse,  # Type
                 # P1.2.0
-                0x50,
-                0x31,
-                0x32,
+                0,
+                1,
+                2,
                 0x30,
                 # Options
                 0x00,
