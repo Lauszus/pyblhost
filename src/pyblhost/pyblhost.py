@@ -193,8 +193,7 @@ class BlhostBase(ABC):
         self._memory_data = bytearray()
 
     @abstractmethod
-    def _send_implementation(self, data: list[int]) -> None:
-        pass
+    def _send_implementation(self, data: list[int]) -> None: ...
 
     def _send(self, data: list[int]) -> None:
         with self._send_lock:
@@ -226,8 +225,7 @@ class BlhostBase(ABC):
         return self._get_command_response_event.wait(timeout)
 
     @abstractmethod
-    def shutdown(self, timeout: float = 1.0) -> None:
-        pass
+    def shutdown(self, timeout: float = 1.0) -> None: ...
 
     def __enter__(self) -> Self:
         return self
@@ -443,7 +441,11 @@ class BlhostBase(ABC):
         )
 
     def read(
-        self, start_address: int, byte_count: int, timeout: float = 5.0, ping_repeat: int = 3
+        self,
+        start_address: int,
+        byte_count: int,
+        timeout: float = 5.0,
+        ping_repeat: int = 3,
     ) -> Generator[float | bytearray]:
         # Try to ping the target 3 times to make sure we can communicate with the bootloader
         for i in range(ping_repeat):
@@ -1069,13 +1071,15 @@ def cli() -> None:
             except ValueError:
                 parser.error(f"Invalid property value: '{parsed_args.prop}'. Must be an integer (decimal or hex)")
 
-            if not blhost.get_property(
+            if blhost.get_property(
                 property_tag=property_tag,
                 timeout=parsed_args.timeout,
                 ping_repeat=parsed_args.cmd_repeat,
             ):
-                blhost.logger.error("Timed out waiting for property")
-                sys.exit(1)
+                sys.exit(0)
+
+            blhost.logger.error("Timed out waiting for property")
+            sys.exit(1)
         else:
             for i in range(parsed_args.cmd_repeat):
                 if blhost.reset(timeout=parsed_args.timeout):
