@@ -23,7 +23,7 @@ jobs:
       # comments (to avoid publishing multiple comments in the same PR)
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           # Needed for coverage
           fetch-depth: 1000
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
