@@ -50,7 +50,7 @@ usage: pyblhost [-tx TX_ID] [-rx RX_ID] [-e EXTENDED_ID] [-i INTERFACE]
                 [-l CHANNEL] [-p PORT] [-h] [--version] [-B BINARY]
                 [-s START_ADDRESS] [-c BYTE_COUNT] [-t TIMEOUT]
                 [-r CMD_REPEAT] [-b BAUDRATE] [--prop PROP] [--no-reset] [-v]
-                [--assume-success]
+                [--assume-success] [--compress]
                 {can,serial} {upload,read,ping,reset,get_property}
 
 positional arguments:
@@ -99,6 +99,7 @@ optional arguments:
   --no-reset            Do not reset the target after upload
   -v, --verbose         Increase output verbosity
   --assume-success      Assume success if uploading fails
+  --compress            Compress the binary using heatshrink if the target supports it
 ```
 
 __Upload__
@@ -109,6 +110,18 @@ uvx pyblhost can upload -tx 0x123 -rx 0x321 -B blink.bin -s 0x4C000 -c 0x34000
 
 ```bash
 uvx pyblhost serial upload -p /dev/ttyUSB0 -b 500000 -B blink.bin -s 0x4C000 -c 0x34000
+```
+
+__Upload compressed__
+
+The binary can be compressed using [heatshrink](https://github.com/atomicobject/heatshrink) to reduce the upload time.
+This requires a bootloader that supports the custom `HeatshrinkParameters` property (`0x80`) and the custom
+`HeatshrinkCompressed` (`0x02`) flag for the write memory command. The write memory command then takes the
+uncompressed byte count as a third parameter.
+The binary is uploaded uncompressed if the bootloader does not support compression.
+
+```bash
+uvx pyblhost can upload -tx 0x123 -rx 0x321 -B blink.bin -s 0x4C000 -c 0x34000 --compress
 ```
 
 __Read__

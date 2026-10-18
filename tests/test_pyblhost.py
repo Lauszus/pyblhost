@@ -34,6 +34,7 @@ from typing import Any
 from unittest.mock import Mock, call, mock_open, patch
 
 import can
+import heatshrink2
 import pytest
 
 from pyblhost.pyblhost import (
@@ -437,6 +438,7 @@ class TestBlhostBase:
             def __init__(self, logger: logging.Logger) -> None:
                 super().__init__(logger)
                 self.uploaded_data: bytes | None = None
+                self.compress_values: list[bool] = []
 
             def _send_implementation(self, data: list[int]) -> None:
                 pass
@@ -449,8 +451,10 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 self.uploaded_data = binary_data
+                self.compress_values.append(compress)
                 yield 50.0  # Progress
                 yield 100.0  # Progress
                 return True
@@ -472,12 +476,17 @@ class TestBlhostBase:
         # Check that file was read and padded correctly
         expected_data = b"test_data" + b"\xff" * 7  # Padded to 16-byte boundary
         assert blhost.uploaded_data == expected_data
+        assert blhost.compress_values == [False]  # Compression is disabled by default
 
         # Check results
         assert len(results) == 3  # Two progress values + final result
         assert results[0] == 50.0
         assert results[1] == 100.0
         assert results[2] is True
+
+        # Make sure the compress argument is passed on
+        list(blhost.upload("test.bin", 0x1000, 0x1000, compress=True))
+        assert blhost.compress_values == [False, True]
 
     @patch("builtins.open", new_callable=mock_open, read_data=b"test_data")
     def test_upload_multiple_attempts_success_on_retry(self, mock_file: Mock) -> None:
@@ -501,6 +510,7 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 self.attempt_count += 1
                 yield 50.0
@@ -545,6 +555,7 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 yield 100.0
                 return True
@@ -584,6 +595,7 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 yield 100.0
                 return True
@@ -855,6 +867,174 @@ class TestBlhostBase:
         assert len(yielded_values) >= 2
         assert yielded_values[0] == 0.0  # Initial progress
         assert return_value is True  # Should return True due to assume_success
+
+    class CompressionTestBlhost(BlhostBase):
+        """Used for testing uploading with compression."""
+
+        def __init__(self, logger: logging.Logger, property_values: tuple[int, ...] | None) -> None:
+            super().__init__(logger)
+            # The property values the target responds with. None means that the target does not respond.
+            self.property_values = property_values
+            self.requested_properties: list[BlhostBase.PropertyTag] = []
+            self.write_memory_calls: list[tuple[int, int]] = []
+            self.write_memory_compressed_calls: list[tuple[int, int, int]] = []
+            self.sent_data = bytearray()
+
+            # Mock the events
+            self._flash_erase_region_response_event = Mock()
+            self._flash_erase_region_response_event.wait.return_value = True
+            self._write_memory_response_event = Mock()
+            self._write_memory_response_event.wait.return_value = True
+            self._ack_response_event = Mock()
+            self._ack_response_event.wait.return_value = True
+
+        def _send_implementation(self, data: list[int]) -> None:
+            pass
+
+        def ping(self, timeout: float = 5.0) -> bool:
+            return True
+
+        def _get_property(self, property_tag: BlhostBase.PropertyTag, memory_id: int = 0) -> None:
+            self.requested_properties.append(property_tag)
+            if self.property_values is not None:
+                self._property_values = self.property_values
+                self._get_command_response_event.set()
+
+        def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
+            pass
+
+        def _write_memory(self, start_address: int, data: bytes) -> None:
+            self.write_memory_calls.append((start_address, len(data)))
+
+        def _write_memory_compressed(self, start_address: int, data: bytes, uncompressed_byte_count: int) -> None:
+            self.write_memory_compressed_calls.append((start_address, len(data), uncompressed_byte_count))
+
+        def _data_packet(self, *payload: Any) -> None:
+            self.sent_data += bytes(payload)
+
+        def shutdown(self, timeout: float = 1.0) -> None:
+            pass
+
+    @staticmethod
+    def _run_upload(blhost: BlhostBase, binary_data: bytes, compress: bool) -> tuple[list[float], bool]:
+        generator = blhost._upload(binary_data, 0x1000, 0x2000, timeout=0.01, ping_repeat=1, compress=compress)
+        yielded_values = []
+        try:
+            while True:
+                yielded_values.append(next(generator))
+        except StopIteration as e:
+            return yielded_values, e.value
+
+    def test_upload_compressed(self) -> None:
+        """Test _upload sends heatshrink compressed data when the target supports it."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=(13, 4))
+
+        test_data = b"\xff" * 1000 + b"A" * 104
+        yielded_values, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        assert yielded_values[0] == 0.0
+        assert yielded_values[-1] == 100.0
+        assert blhost.requested_properties == [BlhostBase.PropertyTag.HeatshrinkParameters]
+
+        # The compressed write memory command should be used with the uncompressed byte count
+        assert blhost.write_memory_calls == []
+        assert blhost.write_memory_compressed_calls == [(0x1000, len(blhost.sent_data), len(test_data))]
+        assert len(blhost.sent_data) < len(test_data)
+
+        # The target must be able to decompress the data using the parameters it reported
+        assert heatshrink2.decode(bytes(blhost.sent_data), window_sz2=13, lookahead_sz2=4) == test_data
+
+    def test_upload_compress_not_supported(self) -> None:
+        """Test _upload falls back to uncompressed data when the target does not support compression."""
+        # Targets without compression support respond with an "UnknownProperty" status i.e. no values
+        blhost = self.CompressionTestBlhost(self.logger, property_values=())
+
+        test_data = b"\xff" * 1000
+        _, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        assert blhost.write_memory_calls == [(0x1000, len(test_data))]
+        assert blhost.write_memory_compressed_calls == []
+        assert bytes(blhost.sent_data) == test_data
+        self.logger.warning.assert_called_with(
+            "BlhostBase: Target does not support compression, uploading uncompressed"
+        )
+
+    def test_upload_compress_property_timeout(self) -> None:
+        """Test _upload falls back to uncompressed data when the target does not respond to the property request."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=None)
+
+        test_data = b"\xff" * 1000
+        _, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        assert blhost.write_memory_calls == [(0x1000, len(test_data))]
+        assert blhost.write_memory_compressed_calls == []
+        assert bytes(blhost.sent_data) == test_data
+
+    def test_upload_compress_not_smaller(self) -> None:
+        """Test _upload sends uncompressed data when compression does not reduce the size."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=(13, 4))
+
+        test_data = bytes(range(256))  # Data that does not compress
+        _, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        assert blhost.write_memory_calls == [(0x1000, len(test_data))]
+        assert blhost.write_memory_compressed_calls == []
+        assert bytes(blhost.sent_data) == test_data
+
+    def test_upload_compress_disabled(self) -> None:
+        """Test _upload does not request the heatshrink parameters when compression is disabled."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=(13, 4))
+
+        test_data = b"\xff" * 1000
+        _, return_value = self._run_upload(blhost, test_data, compress=False)
+
+        assert return_value is True
+        assert blhost.requested_properties == []
+        assert blhost.write_memory_calls == [(0x1000, len(test_data))]
+        assert blhost.write_memory_compressed_calls == []
+
+    def test_write_memory_compressed_command_packet(self) -> None:
+        """Test the compressed write memory command packet."""
+
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.command_calls: list[tuple[int, int, tuple[Any, ...]]] = []
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _command_packet(self, tag: BlhostBase.CommandTags, flags: int, *payload: Any) -> None:
+                self.command_calls.append((tag, flags, payload))
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._write_memory_compressed(0x1000, b"A" * 10, 100)
+
+        assert blhost.command_calls == [
+            (
+                BlhostBase.CommandTags.WriteMemory,
+                BlhostBase.CommandFlags.HeatshrinkCompressed,
+                tuple(struct.Struct("<LLL").pack(0x1000, 10, 100)),
+            )
+        ]
+
+        # Requesting a property should clear the values from the previous response
+        previous_values: tuple[int, ...] = (13, 4)
+        blhost._property_values = previous_values
+        blhost._get_property(BlhostBase.PropertyTag.HeatshrinkParameters)
+        assert blhost._property_values == ()
+        assert blhost.command_calls[-1] == (
+            BlhostBase.CommandTags.GetProperty,
+            0x00,
+            tuple(struct.Struct("<LL").pack(BlhostBase.PropertyTag.HeatshrinkParameters, 0)),
+        )
 
     def test_read_method(self) -> None:
         """Test read method implementation."""
@@ -1301,6 +1481,28 @@ class TestBlhostBase:
         ]
 
         blhost._get_command_response_event.set.assert_called_once()
+
+        # The property values should be stored
+        assert blhost._property_values == (0x1234,)
+
+        # The property values should be cleared when the property is unknown
+        unknown_property_data = bytearray(
+            [
+                BlhostBase.FramingPacketConstants.StartByte,
+                BlhostBase.FramingPacketConstants.Type_Command,
+                0x08,
+                0x00,
+                0x00,
+                0x00,
+                BlhostBase.ResponseTags.GetPropertyResponse,
+                0x00,
+                0x00,
+                0x01,  # Parameter count (1)
+                *struct.Struct("<L").pack(BlhostBase.StatusCodes.UnknownProperty),
+            ]
+        )
+        blhost._data_callback(unknown_property_data)
+        assert blhost._property_values == ()
 
     def test_data_callback_get_property_response_status_code_value_mapping(self) -> None:
         class TestBlhost(BlhostBase):
@@ -2536,3 +2738,9 @@ class TestEnumValues:
         assert int(BlhostBase.PropertyTag.AvailablePeripherals) == 0x02
         assert int(BlhostBase.PropertyTag.FlashStartAddress) == 0x03
         assert int(BlhostBase.PropertyTag.FlashSizeInBytes) == 0x04
+        assert int(BlhostBase.PropertyTag.HeatshrinkParameters) == 0x80
+
+    def test_command_flags(self) -> None:
+        """Test CommandFlags enum values."""
+        assert int(BlhostBase.CommandFlags.HasDataPhase) == 0x01
+        assert int(BlhostBase.CommandFlags.HeatshrinkCompressed) == 0x02

@@ -87,6 +87,7 @@ class MockBlhost:
         attempts: int = 1,
         reset: bool = True,
         assume_success: bool = False,
+        compress: bool = False,
     ) -> Any:
         self.upload_args.append(
             {
@@ -98,6 +99,7 @@ class MockBlhost:
                 "attempts": attempts,
                 "reset": reset,
                 "assume_success": assume_success,
+                "compress": compress,
             }
         )
         yield from self.upload_results
@@ -653,6 +655,44 @@ class TestCLI:
             assert upload_args[0]["attempts"] == 1
             assert upload_args[0]["reset"] is True
             assert upload_args[0]["assume_success"] is True
+            assert upload_args[0]["compress"] is False
+
+    def test_cli_upload_compress(self) -> None:
+        """Test CLI upload with compress flag."""
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(b"test data")
+            tmp_file.flush()
+
+            test_args = [
+                "pyblhost",
+                "serial",
+                "upload",
+                "--port",
+                "/dev/ttyUSB0",
+                "--binary",
+                tmp_file.name,
+                "--start-address",
+                "0x1000",
+                "--byte-count",
+                "0x2000",
+                "--compress",
+            ]
+
+            mock_blhost = MockBlhost()
+
+            with (
+                patch("sys.argv", test_args),
+                patch("pyblhost.pyblhost.BlhostSerial", return_value=mock_blhost),
+                pytest.raises(SystemExit) as exc_info,
+            ):
+                cli()
+
+            assert exc_info.value.code == 0
+
+            upload_args = mock_blhost.upload_args
+            assert len(upload_args) == 1
+            assert upload_args[0]["assume_success"] is False
+            assert upload_args[0]["compress"] is True
 
     @patch("logging.getLogger")
     def test_cli_verbose_mode(self, mock_get_logger: Mock) -> None:

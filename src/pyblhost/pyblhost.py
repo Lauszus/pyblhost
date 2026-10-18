@@ -37,6 +37,7 @@ from types import TracebackType
 from typing import Any, Callable, cast
 
 import can
+import heatshrink2
 import serial
 from tqdm import tqdm
 from typing_extensions import Self
@@ -82,6 +83,10 @@ class BlhostBase(ABC):
         ConfigureQuadSpi = 0x11
         ReliableUpdate = 0x12
 
+    class CommandFlags(IntEnum):
+        HasDataPhase = 0x01
+        HeatshrinkCompressed = 0x02  # Custom flag used to indicate that the write memory data is compressed
+
     class ResponseTags(IntEnum):
         GenericResponse = 0xA0
         ReadMemoryResponse = 0xA3
@@ -115,6 +120,7 @@ class BlhostBase(ABC):
         TargetVersion = 0x18
         ExternalMemoryAttributes = 0x19
         ReliableUpdateStatus = 0x1A
+        HeatshrinkParameters = 0x80  # Custom property used for getting the window and lookahead sizes
 
     class StatusCodes(IntEnum):
         # Generic statuses
@@ -192,6 +198,9 @@ class BlhostBase(ABC):
         # Used to store memory data when reading
         self._memory_data = bytearray()
 
+        # Used to store the values of the last get property response
+        self._property_values: tuple[int, ...] = ()
+
     @abstractmethod
     def _send_implementation(self, data: list[int]) -> None: ...
 
@@ -261,6 +270,7 @@ class BlhostBase(ABC):
         attempts: int = 1,
         reset: bool = True,
         assume_success: bool = False,
+        compress: bool = False,
     ) -> Generator[float | bool]:
         if attempts < 1:
             raise ValueError('BlhostBase: "attempts" has to be greater than 0')
@@ -281,7 +291,7 @@ class BlhostBase(ABC):
             try:
                 # Yield a progress while uploading and store the return value
                 upload_result = yield from self._upload(
-                    binary_data, start_address, erase_byte_count, timeout, ping_repeat, assume_success
+                    binary_data, start_address, erase_byte_count, timeout, ping_repeat, assume_success, compress
                 )
 
                 # We need to clear the backup region if uploading fails.
@@ -318,6 +328,7 @@ class BlhostBase(ABC):
         timeout: float,
         ping_repeat: int,
         assume_success: bool = False,
+        compress: bool = False,
     ) -> Generator[float, None, bool]:
         # Try to ping the target 3 times to make sure we can communicate with the bootloader
         for i in range(ping_repeat):
@@ -327,6 +338,25 @@ class BlhostBase(ABC):
         else:
             self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
             return False
+
+        # Compress the binary if the target supports it
+        uncompressed_byte_count = None
+        if compress:
+            heatshrink_parameters = self._get_heatshrink_parameters(timeout)
+            if heatshrink_parameters is None:
+                self.logger.warning("BlhostBase: Target does not support compression, uploading uncompressed")
+            else:
+                window_sz2, lookahead_sz2 = heatshrink_parameters
+                compressed_data = heatshrink2.encode(binary_data, window_sz2=window_sz2, lookahead_sz2=lookahead_sz2)
+                self.logger.info(
+                    f"BlhostBase: Compressed {len(binary_data)} bytes to {len(compressed_data)} bytes "
+                    f"(window: {window_sz2}, lookahead: {lookahead_sz2})"
+                )
+                if len(compressed_data) < len(binary_data):
+                    uncompressed_byte_count = len(binary_data)
+                    binary_data = compressed_data
+                else:
+                    self.logger.info("BlhostBase: Compression did not reduce the size, uploading uncompressed")
 
         # First erase the region of memory where application will be located
         # The application will be flashed when this command succeeds
@@ -341,7 +371,10 @@ class BlhostBase(ABC):
 
         self.logger.info("BlhostBase: Sending write memory command")
         self._write_memory_response_event.clear()
-        self._write_memory(start_address, binary_data)
+        if uncompressed_byte_count is None:
+            self._write_memory(start_address, binary_data)
+        else:
+            self._write_memory_compressed(start_address, binary_data, uncompressed_byte_count)
         if not self._write_memory_response_event.wait(timeout):
             self.logger.warning("BlhostBase: Timed out waiting for write memory response")
             return False
@@ -372,6 +405,19 @@ class BlhostBase(ABC):
 
         self.logger.warning(f"BlhostBase: Timed out waiting for write memory response, returning {assume_success}")
         return assume_success
+
+    def _get_heatshrink_parameters(self, timeout: float) -> tuple[int, int] | None:
+        """Returns the heatshrink window and lookahead sizes or None if the target does not support compression"""
+        self._get_command_response_event.clear()
+        self._get_property(self.PropertyTag.HeatshrinkParameters)
+        if not self._get_command_response_event.wait(timeout):
+            self.logger.warning("BlhostBase: Timed out waiting for heatshrink parameters")
+            return None
+
+        # Targets without compression support respond with an "UnknownProperty" status
+        if len(self._property_values) != 2:
+            return None
+        return self._property_values[0], self._property_values[1]
 
     def _ack(self) -> None:
         data = [int(self.FramingPacketConstants.StartByte), int(self.FramingPacketConstants.Type_Ack)]
@@ -432,6 +478,9 @@ class BlhostBase(ABC):
         self._framing_packet(self.FramingPacketConstants.Type_Data, len(payload), *payload)
 
     def _get_property(self, property_tag: PropertyTag, memory_id: int = 0) -> None:
+        # Clear the values from any previous response
+        self._property_values = ()
+
         # Memory ID: 0 = Internal flash, 0x01 = QSPI0 memory
         self._command_packet(self.CommandTags.GetProperty, 0x00, *struct.Struct("<LL").pack(property_tag, memory_id))
 
@@ -494,6 +543,13 @@ class BlhostBase(ABC):
 
     def _write_memory(self, start_address: int, data: bytes) -> None:
         self._command_packet(self.CommandTags.WriteMemory, 0x00, *struct.Struct("<LL").pack(start_address, len(data)))
+
+    def _write_memory_compressed(self, start_address: int, data: bytes, uncompressed_byte_count: int) -> None:
+        self._command_packet(
+            self.CommandTags.WriteMemory,
+            self.CommandFlags.HeatshrinkCompressed,
+            *struct.Struct("<LLL").pack(start_address, len(data), uncompressed_byte_count),
+        )
 
     def _reliable_update(self, address: int = 0) -> None:
         """
@@ -591,10 +647,12 @@ class BlhostBase(ABC):
             elif tag == self.ResponseTags.GetPropertyResponse:
                 # Make sure the response actually contain any property values
                 if parameter_count == 1:
+                    self._property_values = ()
                     self.logger.log(level, f"BlhostBase: ResponseTags.GetPropertyResponse: status: {status_name}")
                 else:
                     # Unpack the property values and log them
                     property_values = struct.Struct(f"<{parameter_count - 1}L").unpack(data[14:])
+                    self._property_values = property_values if status_code == self.StatusCodes.Success else ()
                     if len(property_values) == 1 and (
                         self.StatusCodes.AppCrcCheckPassed
                         <= property_values[0]
@@ -932,6 +990,11 @@ def cli() -> None:
     optional.add_argument("--no-reset", help="Do not reset the target after upload", action="store_true")
     optional.add_argument("-v", "--verbose", help="Increase output verbosity", action="store_true")
     optional.add_argument("--assume-success", help="Assume success if uploading fails", action="store_true")
+    optional.add_argument(
+        "--compress",
+        help="Compress the binary using heatshrink if the target supports it",
+        action="store_true",
+    )
 
     parsed_args = parser.parse_args()
     if parsed_args.hw_interface == "can":
@@ -988,6 +1051,7 @@ def cli() -> None:
                 ping_repeat=parsed_args.cmd_repeat,
                 reset=not parsed_args.no_reset,
                 assume_success=parsed_args.assume_success,
+                compress=parsed_args.compress,
             ):
                 if not isinstance(upload_progress, bool):
                     if pbar is None:
