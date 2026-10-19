@@ -991,6 +991,16 @@ class TestBlhostBase:
             "BlhostBase: Target does not support the LZMA parameters, uploading uncompressed"
         )
 
+    @pytest.mark.parametrize(
+        ("max_dictionary_size", "expected_dictionary_size"),
+        [(4096, 4096), (5000, 4096), (6143, 4096), (6144, 6144), (16384, 16384), (30000, 24576)],
+    )
+    def test_lzma_compress_dictionary_size(self, max_dictionary_size: int, expected_dictionary_size: int) -> None:
+        """Test the dictionary size in the header never exceeds the limit reported by the target."""
+        compressed = BlhostBase._lzma_compress(b"\xff" * 1000, max_dictionary_size, 3)
+        assert compressed is not None
+        assert struct.unpack("<L", compressed[1:5])[0] == expected_dictionary_size
+
     def test_upload_compress_not_smaller(self) -> None:
         """Test _upload sends uncompressed data when compression does not reduce the size."""
         blhost = self.CompressionTestBlhost(self.logger, property_values=(16384, 3))

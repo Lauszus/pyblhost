@@ -443,6 +443,12 @@ class BlhostBase(ABC):
         # liblzma does not support dictionaries smaller than 4 KiB
         if max_lc_plus_lp < BlhostBase.LZMA_LC + BlhostBase.LZMA_LP or max_dictionary_size < 4096:
             return None
+
+        # The ".lzma" header rounds the dictionary size up to 2^n or 2^n + 2^(n-1), so use the largest of those that
+        # does not exceed the limit, as the target would otherwise reject the dictionary size in the header
+        n = max_dictionary_size.bit_length() - 1
+        dictionary_size = 3 << (n - 1) if max_dictionary_size >= 3 << (n - 1) else 1 << n
+
         alone = lzma.compress(
             data,
             format=lzma.FORMAT_ALONE,
@@ -450,7 +456,7 @@ class BlhostBase(ABC):
                 {
                     "id": lzma.FILTER_LZMA1,
                     "preset": 9 | lzma.PRESET_EXTREME,
-                    "dict_size": max_dictionary_size,
+                    "dict_size": dictionary_size,
                     "lc": BlhostBase.LZMA_LC,
                     "lp": BlhostBase.LZMA_LP,
                     "pb": BlhostBase.LZMA_PB,
