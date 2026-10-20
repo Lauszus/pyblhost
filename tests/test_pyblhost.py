@@ -586,6 +586,57 @@ class TestBlhostBase:
         assert blhost.erase_calls == 1  # Erase called only after first failure
         assert results[-1] is True  # The final result is success
 
+    @pytest.mark.parametrize(
+        ("ping_repeat", "reset", "expected_ping_repeats"),
+        [
+            (0, True, [0, 1, 1]),  # Skips the first ping, but pings once after every reset
+            (3, True, [3, 3, 3]),  # Keeps the requested number of pings
+            (0, False, [0, 0, 0]),  # The target is not reset, so it is still in bootloader mode
+        ],
+    )
+    @patch("builtins.open", new_callable=mock_open, read_data=b"test_data")
+    def test_upload_retry_pings_after_reset(
+        self, mock_file: Mock, ping_repeat: int, reset: bool, expected_ping_repeats: list[int]
+    ) -> None:
+        """Test that upload pings the target on retries after it has been reset."""
+
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.ping_repeats: list[int] = []
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _upload(
+                self,
+                binary_data: bytes,
+                start_address: int,
+                erase_byte_count: int,
+                timeout: float,
+                ping_repeat: int,
+                assume_success: bool = False,
+            ) -> Generator[float, None, bool]:
+                self.ping_repeats.append(ping_repeat)
+                yield 100.0
+                return False  # Fail every attempt
+
+            def reset(self, timeout: float = 5.0) -> bool:
+                return True
+
+            def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
+                self._flash_erase_region_response_event.set()
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+
+        results = list(blhost.upload("test.bin", 0x1000, 0x1000, ping_repeat=ping_repeat, attempts=3, reset=reset))
+
+        assert blhost.ping_repeats == expected_ping_repeats
+        assert results[-1] is False
+
     @patch("builtins.open", new_callable=mock_open, read_data=b"test_data")
     def test_upload_reset_failure(self, mock_file: Mock) -> None:
         """Test upload when reset fails."""

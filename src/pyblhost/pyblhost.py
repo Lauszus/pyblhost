@@ -307,10 +307,14 @@ class BlhostBase(ABC):
                         )
             finally:
                 # Make sure the target is always reset
-                if reset and not self.reset(timeout=timeout):
-                    # This is BAD. This could make the target stay in bootloader mode!
-                    self.logger.error("BlhostBase: Timed out waiting for reset response")
-                    upload_result = False
+                if reset:
+                    if not self.reset(timeout=timeout):
+                        # This is BAD. This could make the target stay in bootloader mode!
+                        self.logger.error("BlhostBase: Timed out waiting for reset response")
+                        upload_result = False
+
+                    # The target has been reset, so make sure the next attempt pings it at least once
+                    ping_repeat = max(ping_repeat, 1)
 
             if upload_result:
                 # Uploading was successful
