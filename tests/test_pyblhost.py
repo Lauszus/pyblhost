@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import logging
+import lzma
 import pathlib
 import struct
 import sys
@@ -494,6 +495,7 @@ class TestBlhostBase:
             def __init__(self, logger: logging.Logger) -> None:
                 super().__init__(logger)
                 self.uploaded_data: bytes | None = None
+                self.compress_values: list[bool] = []
 
             def _send_implementation(self, data: list[int]) -> None:
                 pass
@@ -506,8 +508,10 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 self.uploaded_data = binary_data
+                self.compress_values.append(compress)
                 yield 50.0  # Progress
                 yield 100.0  # Progress
                 return True
@@ -529,12 +533,17 @@ class TestBlhostBase:
         # Check that file was read and padded correctly
         expected_data = b"test_data" + b"\xff" * 7  # Padded to 16-byte boundary
         assert blhost.uploaded_data == expected_data
+        assert blhost.compress_values == [False]  # Compression is disabled by default
 
         # Check results
         assert len(results) == 3  # Two progress values + final result
         assert results[0] == 50.0
         assert results[1] == 100.0
         assert results[2] is True
+
+        # Make sure the compress argument is passed on
+        list(blhost.upload("test.bin", 0x1000, 0x1000, compress=True))
+        assert blhost.compress_values == [False, True]
 
     @patch("builtins.open", new_callable=mock_open, read_data=b"test_data")
     def test_upload_multiple_attempts_success_on_retry(self, mock_file: Mock) -> None:
@@ -558,6 +567,7 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 self.attempt_count += 1
                 yield 50.0
@@ -653,6 +663,7 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 yield 100.0
                 return True
@@ -692,6 +703,7 @@ class TestBlhostBase:
                 timeout: float,
                 ping_repeat: int,
                 assume_success: bool = False,
+                compress: bool = False,
             ) -> Generator[float, None, bool]:
                 yield 100.0
                 return True
@@ -1014,6 +1026,199 @@ class TestBlhostBase:
         assert len(yielded_values) >= 2
         assert yielded_values[0] == 0.0  # Initial progress
         assert return_value is True  # Should return True due to assume_success
+
+    class CompressionTestBlhost(BlhostBase):
+        """Used for testing uploading with compression."""
+
+        def __init__(self, logger: logging.Logger, property_values: tuple[int, ...] | None) -> None:
+            super().__init__(logger)
+            # The property values the target responds with. None means that the target does not respond.
+            self.property_values = property_values
+            self.requested_properties: list[BlhostBase.PropertyTag] = []
+            self.write_memory_calls: list[tuple[int, int]] = []
+            self.write_memory_compressed_calls: list[tuple[int, int, int]] = []
+            self.sent_data = bytearray()
+
+            # Mock the events
+            self._flash_erase_region_response_event = Mock()
+            self._flash_erase_region_response_event.wait.return_value = True
+            self._write_memory_response_event = Mock()
+            self._write_memory_response_event.wait.return_value = True
+            self._ack_response_event = Mock()
+            self._ack_response_event.wait.return_value = True
+
+        def _send_implementation(self, data: list[int]) -> None:
+            pass
+
+        def ping(self, timeout: float = 5.0) -> bool:
+            return True
+
+        def _get_property(self, property_tag: BlhostBase.PropertyTag, memory_id: int = 0) -> None:
+            self.requested_properties.append(property_tag)
+            if self.property_values is not None:
+                self._property_values = self.property_values
+                self._get_command_response_event.set()
+
+        def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
+            pass
+
+        def _write_memory(self, start_address: int, data: bytes) -> None:
+            self.write_memory_calls.append((start_address, len(data)))
+
+        def _write_memory_compressed(self, start_address: int, data: bytes, uncompressed_byte_count: int) -> None:
+            self.write_memory_compressed_calls.append((start_address, len(data), uncompressed_byte_count))
+
+        def _data_packet(self, *payload: Any) -> None:
+            self.sent_data += bytes(payload)
+
+        def shutdown(self, timeout: float = 1.0) -> None:
+            pass
+
+    @staticmethod
+    def _run_upload(blhost: BlhostBase, binary_data: bytes, compress: bool) -> tuple[list[float], bool]:
+        generator = blhost._upload(binary_data, 0x1000, 0x2000, timeout=0.01, ping_repeat=1, compress=compress)
+        yielded_values = []
+        try:
+            while True:
+                yielded_values.append(next(generator))
+        except StopIteration as e:
+            return yielded_values, e.value
+
+    def assert_uploaded_uncompressed(self, blhost: CompressionTestBlhost, test_data: bytes) -> None:
+        assert blhost.write_memory_calls == [(0x1000, len(test_data))]
+        assert blhost.write_memory_compressed_calls == []
+        assert bytes(blhost.sent_data) == test_data
+
+    def test_upload_compressed(self) -> None:
+        """Test _upload sends LZMA compressed data when the target supports it."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=(16384, 3))
+
+        test_data = b"\xff" * 1000 + b"A" * 104
+        yielded_values, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        assert yielded_values[0] == 0.0
+        assert yielded_values[-1] == 100.0
+        assert blhost.requested_properties == [BlhostBase.PropertyTag.LzmaParameters]
+
+        # The compressed write memory command should be used with the uncompressed byte count
+        assert blhost.write_memory_calls == []
+        assert blhost.write_memory_compressed_calls == [(0x1000, len(blhost.sent_data), len(test_data))]
+        assert len(blhost.sent_data) < len(test_data)
+
+        # The data starts with the LZMA properties: (pb * 5 + lp) * 9 + lc followed by the dictionary size
+        assert blhost.sent_data[:5] == bytes([0x6D]) + struct.pack("<L", 16384)
+
+        # The target must be able to decompress the data using the parameters it reported
+        filters = [{"id": lzma.FILTER_LZMA1, "dict_size": 16384, "lc": 1, "lp": 2, "pb": 2}]
+        assert lzma.decompress(bytes(blhost.sent_data[5:]), format=lzma.FORMAT_RAW, filters=filters) == test_data
+
+    def test_upload_compress_not_supported(self) -> None:
+        """Test _upload falls back to uncompressed data when the target does not support compression."""
+        # Targets without compression support respond with an "UnknownProperty" status i.e. no values
+        blhost = self.CompressionTestBlhost(self.logger, property_values=())
+
+        test_data = b"\xff" * 1000
+        _, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        self.assert_uploaded_uncompressed(blhost, test_data)
+        self.logger.warning.assert_called_with(
+            "BlhostBase: Target does not support compression, uploading uncompressed"
+        )
+
+    def test_upload_compress_property_timeout(self) -> None:
+        """Test _upload falls back to uncompressed data when the target does not respond to the property request."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=None)
+
+        test_data = b"\xff" * 1000
+        _, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        self.assert_uploaded_uncompressed(blhost, test_data)
+
+    def test_upload_compress_unsupported_parameters(self) -> None:
+        """Test _upload falls back to uncompressed data when the target does not allow the lc + lp used."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=(16384, 2))
+
+        test_data = b"\xff" * 1000
+        _, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        self.assert_uploaded_uncompressed(blhost, test_data)
+        self.logger.warning.assert_called_with(
+            "BlhostBase: Target does not support the LZMA parameters, uploading uncompressed"
+        )
+
+    @pytest.mark.parametrize(
+        ("max_dictionary_size", "expected_dictionary_size"),
+        [(4096, 4096), (5000, 4096), (6143, 4096), (6144, 6144), (16384, 16384), (30000, 24576)],
+    )
+    def test_lzma_compress_dictionary_size(self, max_dictionary_size: int, expected_dictionary_size: int) -> None:
+        """Test the dictionary size in the header never exceeds the limit reported by the target."""
+        compressed = BlhostBase._lzma_compress(b"\xff" * 1000, max_dictionary_size, 3)
+        assert compressed is not None
+        assert struct.unpack("<L", compressed[1:5])[0] == expected_dictionary_size
+
+    def test_upload_compress_not_smaller(self) -> None:
+        """Test _upload sends uncompressed data when compression does not reduce the size."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=(16384, 3))
+
+        test_data = bytes(range(256))  # Data that does not compress
+        _, return_value = self._run_upload(blhost, test_data, compress=True)
+
+        assert return_value is True
+        self.assert_uploaded_uncompressed(blhost, test_data)
+
+    def test_upload_compress_disabled(self) -> None:
+        """Test _upload does not request the LZMA parameters when compression is disabled."""
+        blhost = self.CompressionTestBlhost(self.logger, property_values=(16384, 3))
+
+        test_data = b"\xff" * 1000
+        _, return_value = self._run_upload(blhost, test_data, compress=False)
+
+        assert return_value is True
+        assert blhost.requested_properties == []
+        self.assert_uploaded_uncompressed(blhost, test_data)
+
+    def test_write_memory_compressed_command_packet(self) -> None:
+        """Test the compressed write memory command packet."""
+
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.command_calls: list[tuple[int, int, tuple[Any, ...]]] = []
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _command_packet(self, tag: BlhostBase.CommandTags, flags: int, *payload: Any) -> None:
+                self.command_calls.append((tag, flags, payload))
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._write_memory_compressed(0x1000, b"A" * 10, 100)
+
+        assert blhost.command_calls == [
+            (
+                BlhostBase.CommandTags.WriteMemory,
+                0x02,
+                tuple(struct.Struct("<LLL").pack(0x1000, 10, 100)),
+            )
+        ]
+
+        # Requesting a property should clear the values from the previous response
+        previous_values: tuple[int, ...] = (16384, 3)
+        blhost._property_values = previous_values
+        blhost._get_property(BlhostBase.PropertyTag.LzmaParameters)
+        assert blhost._property_values == ()
+        assert blhost.command_calls[-1] == (
+            BlhostBase.CommandTags.GetProperty,
+            0x00,
+            tuple(struct.Struct("<LL").pack(BlhostBase.PropertyTag.LzmaParameters, 0)),
+        )
 
     def test_read_method(self) -> None:
         """Test read method implementation."""
@@ -1507,6 +1712,28 @@ class TestBlhostBase:
         ]
 
         blhost._get_command_response_event.set.assert_called_once()
+
+        # The property values should be stored
+        assert blhost._property_values == (0x1234,)
+
+        # The property values should be cleared when the property is unknown
+        unknown_property_data = bytearray(
+            [
+                BlhostBase.FramingPacketConstants.StartByte,
+                BlhostBase.FramingPacketConstants.Type_Command,
+                0x08,
+                0x00,
+                0x00,
+                0x00,
+                BlhostBase.ResponseTags.GetPropertyResponse,
+                0x00,
+                0x00,
+                0x01,  # Parameter count (1)
+                *struct.Struct("<L").pack(BlhostBase.StatusCodes.UnknownProperty),
+            ]
+        )
+        blhost._data_callback(unknown_property_data)
+        assert blhost._property_values == ()
 
     def test_data_callback_get_property_response_status_code_value_mapping(self) -> None:
         class TestBlhost(BlhostBase):
@@ -2742,3 +2969,9 @@ class TestEnumValues:
         assert int(BlhostBase.PropertyTag.AvailablePeripherals) == 0x02
         assert int(BlhostBase.PropertyTag.FlashStartAddress) == 0x03
         assert int(BlhostBase.PropertyTag.FlashSizeInBytes) == 0x04
+        assert int(BlhostBase.PropertyTag.LzmaParameters) == 0x80
+
+    def test_command_flags(self) -> None:
+        """Test CommandFlags enum values."""
+        assert int(BlhostBase.CommandFlags.HasDataPhase) == 0x01
+        assert int(BlhostBase.CommandFlags.LzmaCompressed) == 0x02

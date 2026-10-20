@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import lzma
 import struct
 import sys
 import threading
@@ -82,6 +83,10 @@ class BlhostBase(ABC):
         ConfigureQuadSpi = 0x11
         ReliableUpdate = 0x12
 
+    class CommandFlags(IntEnum):
+        HasDataPhase = 0x01
+        LzmaCompressed = 0x02  # Custom flag used to indicate that the write memory data is LZMA compressed
+
     class ResponseTags(IntEnum):
         GenericResponse = 0xA0
         ReadMemoryResponse = 0xA3
@@ -115,6 +120,7 @@ class BlhostBase(ABC):
         TargetVersion = 0x18
         ExternalMemoryAttributes = 0x19
         ReliableUpdateStatus = 0x1A
+        LzmaParameters = 0x80  # Custom property used for getting the largest LZMA dictionary size and lc + lp
 
     class StatusCodes(IntEnum):
         # Generic statuses
@@ -169,6 +175,15 @@ class BlhostBase(ABC):
             10607  # Cannot swap flash because provided swap indicator is invalid
         )
 
+    # The LZMA properties are followed by the 8 byte uncompressed size in the ".lzma" format
+    LZMA_PROPS_SIZE = 5
+    LZMA_ALONE_HEADER_SIZE = LZMA_PROPS_SIZE + 8
+
+    # These literal and position settings compress Thumb code best
+    LZMA_LC = 1
+    LZMA_LP = 2
+    LZMA_PB = 2
+
     def __init__(self, logger: logging.Logger) -> None:
         self.logger = logger
 
@@ -191,6 +206,9 @@ class BlhostBase(ABC):
 
         # Used to store memory data when reading
         self._memory_data = bytearray()
+
+        # Used to store the values of the last get property response
+        self._property_values: tuple[int, ...] = ()
 
     @abstractmethod
     def _send_implementation(self, data: list[int]) -> None: ...
@@ -270,6 +288,7 @@ class BlhostBase(ABC):
         attempts: int = 1,
         reset: bool = True,
         assume_success: bool = False,
+        compress: bool = False,
     ) -> Generator[float | bool]:
         if attempts < 1:
             raise ValueError('BlhostBase: "attempts" has to be greater than 0')
@@ -290,7 +309,7 @@ class BlhostBase(ABC):
             try:
                 # Yield a progress while uploading and store the return value
                 upload_result = yield from self._upload(
-                    binary_data, start_address, erase_byte_count, timeout, ping_repeat, assume_success
+                    binary_data, start_address, erase_byte_count, timeout, ping_repeat, assume_success, compress
                 )
 
                 # We need to clear the backup region if uploading fails.
@@ -331,9 +350,34 @@ class BlhostBase(ABC):
         timeout: float,
         ping_repeat: int,
         assume_success: bool = False,
+        compress: bool = False,
     ) -> Generator[float, None, bool]:
         if not self._ping_target(timeout, ping_repeat):
             return False
+
+        # Compress the binary if the target supports it
+        uncompressed_byte_count = None
+        if compress:
+            lzma_parameters = self._get_lzma_parameters(timeout)
+            if lzma_parameters is None:
+                self.logger.warning("BlhostBase: Target does not support compression, uploading uncompressed")
+            else:
+                max_dictionary_size, max_lc_plus_lp = lzma_parameters
+                compressed_data = self._lzma_compress(binary_data, max_dictionary_size, max_lc_plus_lp)
+                if compressed_data is None:
+                    self.logger.warning(
+                        "BlhostBase: Target does not support the LZMA parameters, uploading uncompressed"
+                    )
+                else:
+                    self.logger.info(
+                        f"BlhostBase: Compressed {len(binary_data)} bytes to {len(compressed_data)} bytes "
+                        f"(dictionary: {max_dictionary_size} bytes)"
+                    )
+                    if len(compressed_data) < len(binary_data):
+                        uncompressed_byte_count = len(binary_data)
+                        binary_data = compressed_data
+                    else:
+                        self.logger.info("BlhostBase: Compression did not reduce the size, uploading uncompressed")
 
         # First erase the region of memory where application will be located
         # The application will be flashed when this command succeeds
@@ -348,7 +392,10 @@ class BlhostBase(ABC):
 
         self.logger.info("BlhostBase: Sending write memory command")
         self._write_memory_response_event.clear()
-        self._write_memory(start_address, binary_data)
+        if uncompressed_byte_count is None:
+            self._write_memory(start_address, binary_data)
+        else:
+            self._write_memory_compressed(start_address, binary_data, uncompressed_byte_count)
         if not self._write_memory_response_event.wait(timeout):
             self.logger.warning("BlhostBase: Timed out waiting for write memory response")
             return False
@@ -379,6 +426,51 @@ class BlhostBase(ABC):
 
         self.logger.warning(f"BlhostBase: Timed out waiting for write memory response, returning {assume_success}")
         return assume_success
+
+    def _get_lzma_parameters(self, timeout: float) -> tuple[int, int] | None:
+        """Returns the largest LZMA dictionary size and lc + lp or None if the target does not support compression"""
+        self._get_command_response_event.clear()
+        self._get_property(self.PropertyTag.LzmaParameters)
+        if not self._get_command_response_event.wait(timeout):
+            self.logger.warning("BlhostBase: Timed out waiting for LZMA parameters")
+            return None
+
+        # Targets without compression support respond with an "UnknownProperty" status
+        if len(self._property_values) != 2:
+            return None
+        return self._property_values[0], self._property_values[1]
+
+    @staticmethod
+    def _lzma_compress(data: bytes, max_dictionary_size: int, max_lc_plus_lp: int) -> bytes | None:
+        """
+        Returns the 5 LZMA properties bytes followed by the raw LZMA stream with an end marker or None if the target
+        limits do not allow the settings used. This is the ".lzma" format without the 8 byte uncompressed size, as the
+        size is sent in the write memory command.
+        """
+        # liblzma does not support dictionaries smaller than 4 KiB
+        if max_lc_plus_lp < BlhostBase.LZMA_LC + BlhostBase.LZMA_LP or max_dictionary_size < 4096:
+            return None
+
+        # The ".lzma" header rounds the dictionary size up to 2^n or 2^n + 2^(n-1), so use the largest of those that
+        # does not exceed the limit, as the target would otherwise reject the dictionary size in the header
+        n = max_dictionary_size.bit_length() - 1
+        dictionary_size = 3 << (n - 1) if max_dictionary_size >= 3 << (n - 1) else 1 << n
+
+        alone = lzma.compress(
+            data,
+            format=lzma.FORMAT_ALONE,
+            filters=[
+                {
+                    "id": lzma.FILTER_LZMA1,
+                    "preset": 9 | lzma.PRESET_EXTREME,
+                    "dict_size": dictionary_size,
+                    "lc": BlhostBase.LZMA_LC,
+                    "lp": BlhostBase.LZMA_LP,
+                    "pb": BlhostBase.LZMA_PB,
+                }
+            ],
+        )
+        return alone[: BlhostBase.LZMA_PROPS_SIZE] + alone[BlhostBase.LZMA_ALONE_HEADER_SIZE :]
 
     def _ack(self) -> None:
         data = [int(self.FramingPacketConstants.StartByte), int(self.FramingPacketConstants.Type_Ack)]
@@ -439,6 +531,9 @@ class BlhostBase(ABC):
         self._framing_packet(self.FramingPacketConstants.Type_Data, len(payload), *payload)
 
     def _get_property(self, property_tag: PropertyTag, memory_id: int = 0) -> None:
+        # Clear the values from any previous response
+        self._property_values = ()
+
         # Memory ID: 0 = Internal flash, 0x01 = QSPI0 memory
         self._command_packet(self.CommandTags.GetProperty, 0x00, *struct.Struct("<LL").pack(property_tag, memory_id))
 
@@ -495,6 +590,13 @@ class BlhostBase(ABC):
 
     def _write_memory(self, start_address: int, data: bytes) -> None:
         self._command_packet(self.CommandTags.WriteMemory, 0x00, *struct.Struct("<LL").pack(start_address, len(data)))
+
+    def _write_memory_compressed(self, start_address: int, data: bytes, uncompressed_byte_count: int) -> None:
+        self._command_packet(
+            self.CommandTags.WriteMemory,
+            self.CommandFlags.LzmaCompressed,
+            *struct.Struct("<LLL").pack(start_address, len(data), uncompressed_byte_count),
+        )
 
     def _reliable_update(self, address: int = 0) -> None:
         """
@@ -592,10 +694,12 @@ class BlhostBase(ABC):
             elif tag == self.ResponseTags.GetPropertyResponse:
                 # Make sure the response actually contain any property values
                 if parameter_count == 1:
+                    self._property_values = ()
                     self.logger.log(level, f"BlhostBase: ResponseTags.GetPropertyResponse: status: {status_name}")
                 else:
                     # Unpack the property values and log them
                     property_values = struct.Struct(f"<{parameter_count - 1}L").unpack(data[14:])
+                    self._property_values = property_values if status_code == self.StatusCodes.Success else ()
                     if len(property_values) == 1 and (
                         self.StatusCodes.AppCrcCheckPassed
                         <= property_values[0]
@@ -936,6 +1040,11 @@ def cli() -> None:
     optional.add_argument("--no-reset", help="Do not reset the target after upload", action="store_true")
     optional.add_argument("-v", "--verbose", help="Increase output verbosity", action="store_true")
     optional.add_argument("--assume-success", help="Assume success if uploading fails", action="store_true")
+    optional.add_argument(
+        "--compress",
+        help="Compress the binary using LZMA if the target supports it",
+        action="store_true",
+    )
 
     parsed_args = parser.parse_args()
     if parsed_args.cmd_repeat < 0:
@@ -996,6 +1105,7 @@ def cli() -> None:
                 ping_repeat=parsed_args.cmd_repeat,
                 reset=not parsed_args.no_reset,
                 assume_success=parsed_args.assume_success,
+                compress=parsed_args.compress,
             ):
                 if not isinstance(upload_progress, bool):
                     if pbar is None:
