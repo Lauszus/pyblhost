@@ -207,13 +207,7 @@ class BlhostBase(ABC):
         timeout: float = 5.0,
         ping_repeat: int = 3,
     ) -> bool:
-        # Try to ping the target 3 times to make sure we can communicate with the bootloader
-        for i in range(ping_repeat):
-            if self.ping(timeout=timeout):
-                self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
-                break
-        else:
-            self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
+        if not self._ping_target(timeout, ping_repeat):
             return False
 
         # KBOOT responds to getProperty with a GenericResponse
@@ -244,6 +238,21 @@ class BlhostBase(ABC):
         data = [int(self.FramingPacketConstants.StartByte), int(self.FramingPacketConstants.Type_Ping)]
         self._send(data)
         return self._ping_response_event.wait(timeout)
+
+    def _ping_target(self, timeout: float, ping_repeat: int) -> bool:
+        """
+        Ping the target up to ping_repeat times to make sure we can communicate with the bootloader.
+        A ping_repeat of 0 or less skips pinging, e.g. if the target is already known to be in bootloader mode.
+        Note that this also skips the protocol version check done on the ping response.
+        """
+        if ping_repeat <= 0:
+            return True
+        for i in range(ping_repeat):
+            if self.ping(timeout=timeout):
+                self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
+                return True
+        self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
+        return False
 
     def reset(self, timeout: float = 5.0) -> bool:
         self.logger.info("BlhostBase: Sending reset command")
@@ -298,10 +307,14 @@ class BlhostBase(ABC):
                         )
             finally:
                 # Make sure the target is always reset
-                if reset and not self.reset(timeout=timeout):
-                    # This is BAD. This could make the target stay in bootloader mode!
-                    self.logger.error("BlhostBase: Timed out waiting for reset response")
-                    upload_result = False
+                if reset:
+                    if not self.reset(timeout=timeout):
+                        # This is BAD. This could make the target stay in bootloader mode!
+                        self.logger.error("BlhostBase: Timed out waiting for reset response")
+                        upload_result = False
+
+                    # The target has been reset, so make sure the next attempt pings it at least once
+                    ping_repeat = max(ping_repeat, 1)
 
             if upload_result:
                 # Uploading was successful
@@ -319,13 +332,7 @@ class BlhostBase(ABC):
         ping_repeat: int,
         assume_success: bool = False,
     ) -> Generator[float, None, bool]:
-        # Try to ping the target 3 times to make sure we can communicate with the bootloader
-        for i in range(ping_repeat):
-            if self.ping(timeout=timeout):
-                self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
-                break
-        else:
-            self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
+        if not self._ping_target(timeout, ping_repeat):
             return False
 
         # First erase the region of memory where application will be located
@@ -447,13 +454,7 @@ class BlhostBase(ABC):
         timeout: float = 5.0,
         ping_repeat: int = 3,
     ) -> Generator[float | bytearray]:
-        # Try to ping the target 3 times to make sure we can communicate with the bootloader
-        for i in range(ping_repeat):
-            if self.ping(timeout=timeout):
-                self.logger.info(f"BlhostBase: Ping responded in {i + 1} attempt(s)")
-                break
-        else:
-            self.logger.warning(f"BlhostBase: Target did not respond to ping after {ping_repeat} attempts")
+        if not self._ping_target(timeout, ping_repeat):
             return
 
         # Clear any data that was read before
@@ -916,7 +917,10 @@ def cli() -> None:
     optional.add_argument(
         "-r",
         "--cmd-repeat",
-        help="The number of times to try to establish a connection (default 3)",
+        help="The number of times to try to establish a connection (default 3).\n"
+        "For upload, read and get_property 0 skips pinging the target, which is useful\n"
+        "if it is already in bootloader mode. Note that bootloaders using UART autobaud\n"
+        "detection need the ping to detect the baudrate, so do not skip it in that case",
         default=3,
         type=int,
     )
@@ -934,6 +938,10 @@ def cli() -> None:
     optional.add_argument("--assume-success", help="Assume success if uploading fails", action="store_true")
 
     parsed_args = parser.parse_args()
+    if parsed_args.cmd_repeat < 0:
+        parser.error("--cmd-repeat/-r must be 0 or greater")
+    if parsed_args.command in ["ping", "reset"] and parsed_args.cmd_repeat < 1:
+        parser.error(f"--cmd-repeat/-r must be 1 or greater for {parsed_args.command}")
     if parsed_args.hw_interface == "can":
         if parsed_args.tx_id is None or parsed_args.rx_id is None:
             parser.error("The following arguments are required for CAN: --tx-id/-tx, --rx-id/-rx")

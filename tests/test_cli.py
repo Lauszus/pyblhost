@@ -468,6 +468,42 @@ class TestCLI:
 
         assert exc_info.value.code == 2  # argparse error exit code
 
+    @pytest.mark.parametrize(
+        ("command", "cmd_repeat"),
+        [("ping", "0"), ("reset", "0"), ("get_property", "-1")],
+    )
+    def test_cli_invalid_cmd_repeat(self, command: str, cmd_repeat: str) -> None:
+        """Test CLI rejects a cmd-repeat that would send nothing or is negative."""
+        test_args = ["pyblhost", "serial", command, "--port", "/dev/ttyUSB0", "--prop", "1", "--cmd-repeat", cmd_repeat]
+
+        mock_blhost = MockBlhost()
+        with (
+            patch("sys.argv", test_args),
+            patch("pyblhost.pyblhost.BlhostSerial", return_value=mock_blhost),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cli()
+
+        assert exc_info.value.code == 2  # argparse error exit code
+        assert mock_blhost.ping_args == []
+        assert mock_blhost.reset_args == []
+        assert mock_blhost.get_property_args == []
+
+    def test_cli_get_property_skip_ping(self) -> None:
+        """Test CLI get_property accepts a cmd-repeat of 0 to skip pinging."""
+        test_args = ["pyblhost", "serial", "get_property", "--port", "/dev/ttyUSB0", "--prop", "1", "-r", "0"]
+
+        mock_blhost = MockBlhost()
+        with (
+            patch("sys.argv", test_args),
+            patch("pyblhost.pyblhost.BlhostSerial", return_value=mock_blhost),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cli()
+
+        assert exc_info.value.code == 0
+        assert mock_blhost.get_property_args[0]["ping_repeat"] == 0
+
     def test_cli_invalid_property_value(self) -> None:
         """Test CLI get_property with invalid property value."""
         test_args = ["pyblhost", "serial", "get_property", "--port", "/dev/ttyUSB0", "--prop", "invalid"]

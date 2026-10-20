@@ -222,6 +222,32 @@ class TestBlhostBase:
 
         assert result is False
 
+    @pytest.mark.parametrize(
+        ("ping_repeat", "ping_results", "expected_result", "expected_ping_calls"),
+        [
+            (0, [], True, 0),  # Skips pinging
+            (-1, [], True, 0),  # Skips pinging
+            (3, [False, False, False], False, 3),  # Gives up after all attempts
+            (3, [False, True], True, 2),  # Stops as soon as the target responds
+        ],
+    )
+    def test_ping_target(
+        self, ping_repeat: int, ping_results: list[bool], expected_result: bool, expected_ping_calls: int
+    ) -> None:
+        """Test _ping_target retries up to ping_repeat times and skips pinging when it is 0 or less."""
+
+        class TestBlhost(BlhostBase):
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        with patch.object(blhost, "ping", side_effect=ping_results) as mock_ping:
+            assert blhost._ping_target(timeout=0.01, ping_repeat=ping_repeat) is expected_result
+        assert mock_ping.call_count == expected_ping_calls
+
     def test_reset(self) -> None:
         """Test reset method."""
 
@@ -414,6 +440,37 @@ class TestBlhostBase:
 
         assert result is False
 
+    def test_get_property_skip_ping(self) -> None:
+        """Test get_property does not ping when ping_repeat is 0."""
+
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.ping_calls = 0
+                self.get_property_called = False
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def ping(self, timeout: float = 5.0) -> bool:
+                self.ping_calls += 1
+                return False
+
+            def _get_property(self, property_tag: BlhostBase.PropertyTag, memory_id: int = 0) -> None:
+                self.get_property_called = True
+                self._get_command_response_event.set()
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+
+        result = blhost.get_property(BlhostBase.PropertyTag.BootloaderVersion, timeout=0.1, ping_repeat=0)
+
+        assert result is True
+        assert blhost.ping_calls == 0
+        assert blhost.get_property_called
+
     def test_upload_invalid_attempts(self) -> None:
         """Test upload with invalid attempts parameter."""
 
@@ -528,6 +585,57 @@ class TestBlhostBase:
         assert blhost.reset_calls == 2  # Reset called after each attempt
         assert blhost.erase_calls == 1  # Erase called only after first failure
         assert results[-1] is True  # The final result is success
+
+    @pytest.mark.parametrize(
+        ("ping_repeat", "reset", "expected_ping_repeats"),
+        [
+            (0, True, [0, 1, 1]),  # Skips the first ping, but pings once after every reset
+            (3, True, [3, 3, 3]),  # Keeps the requested number of pings
+            (0, False, [0, 0, 0]),  # The target is not reset, so it is still in bootloader mode
+        ],
+    )
+    @patch("builtins.open", new_callable=mock_open, read_data=b"test_data")
+    def test_upload_retry_pings_after_reset(
+        self, mock_file: Mock, ping_repeat: int, reset: bool, expected_ping_repeats: list[int]
+    ) -> None:
+        """Test that upload pings the target on retries after it has been reset."""
+
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.ping_repeats: list[int] = []
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def _upload(
+                self,
+                binary_data: bytes,
+                start_address: int,
+                erase_byte_count: int,
+                timeout: float,
+                ping_repeat: int,
+                assume_success: bool = False,
+            ) -> Generator[float, None, bool]:
+                self.ping_repeats.append(ping_repeat)
+                yield 100.0
+                return False  # Fail every attempt
+
+            def reset(self, timeout: float = 5.0) -> bool:
+                return True
+
+            def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
+                self._flash_erase_region_response_event.set()
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+
+        results = list(blhost.upload("test.bin", 0x1000, 0x1000, ping_repeat=ping_repeat, attempts=3, reset=reset))
+
+        assert blhost.ping_repeats == expected_ping_repeats
+        assert results[-1] is False
 
     @patch("builtins.open", new_callable=mock_open, read_data=b"test_data")
     def test_upload_reset_failure(self, mock_file: Mock) -> None:
@@ -702,6 +810,57 @@ class TestBlhostBase:
             raise AssertionError("Should have raised StopIteration immediately")
         except StopIteration as e:
             assert e.value is False
+
+    def test_upload_skip_ping(self) -> None:
+        """Test _upload does not ping when ping_repeat is 0 and still uploads."""
+
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.ping_calls = 0
+                self.erase_calls = 0
+                self.write_calls = 0
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def ping(self, timeout: float = 5.0) -> bool:
+                self.ping_calls += 1
+                return False
+
+            def _flash_erase_region(self, start_address: int, byte_count: int) -> None:
+                self.erase_calls += 1
+
+            def _write_memory(self, start_address: int, data: bytes) -> None:
+                self.write_calls += 1
+
+            def _data_packet(self, *payload: Any) -> None:
+                pass
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._flash_erase_region_response_event = Mock()
+        blhost._flash_erase_region_response_event.wait.return_value = True
+        blhost._write_memory_response_event = Mock()
+        blhost._write_memory_response_event.wait.return_value = True
+        blhost._ack_response_event = Mock()
+        blhost._ack_response_event.wait.return_value = True
+
+        generator = blhost._upload(b"A" * 40, 0x1000, 0x2000, timeout=1.0, ping_repeat=0)
+        yielded_values = []
+        try:
+            while True:
+                yielded_values.append(next(generator))
+        except StopIteration as e:
+            return_value = e.value
+
+        assert blhost.ping_calls == 0
+        assert blhost.erase_calls == 1
+        assert blhost.write_calls == 1
+        assert yielded_values[-1] == 100.0
+        assert return_value is True
 
     def test_upload_erase_timeout(self) -> None:
         """Test _upload when flash erase times out."""
@@ -950,6 +1109,53 @@ class TestBlhostBase:
         results = list(blhost.read(0x1000, 100, ping_repeat=2))
 
         assert len(results) == 0  # Should return empty generator
+
+    def test_read_skip_ping(self) -> None:
+        """Test read does not ping when ping_repeat is 0 and still reads."""
+
+        class TestBlhost(BlhostBase):
+            def __init__(self, logger: logging.Logger) -> None:
+                super().__init__(logger)
+                self.ping_calls = 0
+                self.read_memory_calls = 0
+
+            def _send_implementation(self, data: list[int]) -> None:
+                pass
+
+            def ping(self, timeout: float = 5.0) -> bool:
+                self.ping_calls += 1
+                return False
+
+            def _read_memory(self, start_address: int, byte_count: int) -> None:
+                self.read_memory_calls += 1
+
+            def shutdown(self, timeout: float = 1.0) -> None:
+                pass
+
+        blhost = TestBlhost(self.logger)
+        blhost._read_memory_response_event = Mock()
+        blhost._read_memory_response_event.wait.return_value = True
+        blhost._read_memory_response_tag_event = Mock()
+        blhost._read_memory_response_tag_event.is_set.return_value = True
+
+        call_count = 0
+
+        def mock_wait(timeout: float) -> bool:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                blhost._memory_data.extend(b"A" * 16)
+                return True
+            return False  # Done, as the read memory response tag event is set
+
+        blhost._data_event = Mock()
+        blhost._data_event.wait = mock_wait
+
+        results = list(blhost.read(0x1000, 16, timeout=1.0, ping_repeat=0))
+
+        assert blhost.ping_calls == 0
+        assert blhost.read_memory_calls == 1
+        assert results[-1] == bytearray(b"A" * 16)
 
     def test_read_memory_response_timeout(self) -> None:
         """Test read method when read memory response times out."""

@@ -91,7 +91,10 @@ optional arguments:
   -t TIMEOUT, --timeout TIMEOUT
                         The time to wait in seconds for a response (default 1.0)
   -r CMD_REPEAT, --cmd-repeat CMD_REPEAT
-                        The number of times to try to establish a connection (default 3)
+                        The number of times to try to establish a connection (default 3).
+                        For upload, read and get_property 0 skips pinging the target, which is useful
+                        if it is already in bootloader mode. Note that bootloaders using UART autobaud
+                        detection need the ping to detect the baudrate, so do not skip it in that case
   -b BAUDRATE, --baudrate BAUDRATE, --bitrate BAUDRATE
                         The baudrate/bitrate to use for serial/can (default 500000)
   --prop PROP, --property PROP
